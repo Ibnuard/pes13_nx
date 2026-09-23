@@ -1,0 +1,13 @@
+* text=auto
+*.sh text eol=lf
+*.py text eol=lf
+*.c text eol=lf
+*.h text eol=lf
+*.patch text eol=lf
+*.txt text eol=lf
+*.dat binary
+*.md text eol=lf
+# Preserve upstream license text and unified-diff context whitespace.
+LICENSE -whitespace
+licenses/** -whitespace
+patches/*.patch -whitespace

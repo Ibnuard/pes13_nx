@@ -1,0 +1,102 @@
+[
+  {
+    "file": "d3dx9_30.dll",
+    "sha256": "cce984c532804e90871ee6933ff21b1f31d344f8adae387b08a1dde2a5ecceda"
+  },
+  {
+    "file": "userenv.dll",
+    "sha256": "b0059f4bb2530d0928520c44f5c1c8c6956ec0b1bbe57c804ea4aacf65b9fe6f"
+  },
+  {
+    "file": "windowscodecs.dll",
+    "sha256": "3b1a2f9cc3096770833a21717868ab1732adef0c4f17bd42662c6a46b166154e"
+  },
+  {
+    "file": "xinput1_1.dll",
+    "sha256": "7703773390fb6e217155f60af9a1df0387f12dadc873a94769af659a32f844ed"
+  },
+  {
+    "file": "xinput1_3.dll",
+    "sha256": "79129f613c9304f757f13bd313872ce37ee9ba0224e3ed21332e145cbd926de6"
+  },
+  {
+    "file": "cabinet.dll",
+    "sha256": "3b430b4d90fa06fd105f4246041633d4bbdcd9b71f208205296282f4762e07ae"
+  },
+  {
+    "file": "cryptnet.dll",
+    "sha256": "98845d259d63c33bc4aabb2db86a5d3e4a88cde29c67acde627bbad7a8423371"
+  },
+  {
+    "file": "cryptsp.dll",
+    "sha256": "9bb91accfa8fdc230e145bbffa781a51e850a9855be6e2e18a2feda7ca9ce4e8"
+  },
+  {
+    "file": "cryptui.dll",
+    "sha256": "0106e3009d76ff0aca7410b5beaa06daa43d61f67c19dbab3529bfb81763b62a"
+  },
+  {
+    "file": "d3dcompiler_47.dll",
+    "sha256": "bf7d4023c48f242105d2062ce0a3b580d12fa116c5a050095bc0eb531aff5b00"
+  },
+  {
+    "file": "d3dxof.dll",
+    "sha256": "b3aa423f308a706b369d75492c6d3d336d4e2b68739af7c742af71b264250b3c"
+  },
+  {
+    "file": "dhcpcsvc.dll",
+    "sha256": "a4f89b412fddd63b78058ed6f37782acdfb5e2c2492bcc7ca7e10674bd18ab3f"
+  },
+  {
+    "file": "gdiplus.dll",
+    "sha256": "b1fb3a8606fcdf4a3f28320c55f58aff3594199d9f286962d91939076987c6fd"
+  },
+  {
+    "file": "glu32.dll",
+    "sha256": "e0bec8dc1e4011b9f5d7458972fe586a0eb13a258f357a56f7156f0ef59dd01e"
+  },
+  {
+    "file": "imagehlp.dll",
+    "sha256": "3697726d0c370a2523e86726f8ac0642776c3e4e1e5a21444cb266869b1796ba"
+  },
+  {
+    "file": "mlang.dll",
+    "sha256": "8aab937980c4139feed9dc694202e76dcb5e5b90b061e863c23690df9f3f9c55"
+  },
+  {
+    "file": "propsys.dll",
+    "sha256": "d7560f3b9964592fcf7e3b40841e95a86ac04e81c4ceca5209f3057940172362"
+  },
+  {
+    "file": "secur32.dll",
+    "sha256": "73599e97a868c290fdb5e7b09fd1f1e5120b58feb9c94a9302a369ed96ef08be"
+  },
+  {
+    "file": "shdocvw.dll",
+    "sha256": "5dbc9a65323a17326b183bc8d446e12dced0d85ce921d189b7ecc342c91f26ab"
+  },
+  {
+    "file": "urlmon.dll",
+    "sha256": "f83b92fa588175d0225fb6dcb6fe1c100ff186d74eab467f0a2514404b62d651"
+  },
+  {
+    "file": "winspool.drv",
+    "sha256": "8d4f06102f3853f2786820f60faee0b2635b7e8c51f750e9a36263894444aa04"
+  },
+  {
+    "file": "advpack.dll",
+    "sha256": "77fe7b5a9ef8f09da630fd845f5088764777d6719cd54c2beeb19b56e2ace756"
+  },
+  {
+    "file": "compstui.dll",
+    "sha256": "3ef7c2c215a5a12bfca55916f508ec99946ca8b1955be06fc751e90289c58877"
+  },
+  {
+    "file": "oleacc.dll",
+    "sha256": "fe935ad2b875119de772e03e6f110bdeb00cedb7019fad4f41ec9b306c9f519a"
+  },
+  {
+    "file": "oledlg.dll",
+    "sha256": "dcb17bf80c647efc25474d3a60516ce910af1ff8a1da53fe8897e156021629cc"
+  }
+]

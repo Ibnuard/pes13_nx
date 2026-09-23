@@ -1,0 +1,5 @@
+title=PES13-NX
+verbose=0
+profile=0
+windows=framebuffer
+d3d9=dxvk

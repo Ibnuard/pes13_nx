@@ -1,0 +1,9 @@
+; Forward XInput 1.1 to Wine-NX's registered xinput1_3 native backend.
+; The NRO does not register a unix-call table under xinput1_1.dll.
+LIBRARY xinput1_1.dll
+EXPORTS
+    XInputEnable=xinput1_3.XInputEnable
+    XInputGetCapabilities=xinput1_3.XInputGetCapabilities
+    XInputGetDSoundAudioDeviceGuids=xinput1_3.XInputGetDSoundAudioDeviceGuids
+    XInputSetState=xinput1_3.XInputSetState
+    XInputGetState=xinput1_3.XInputGetState

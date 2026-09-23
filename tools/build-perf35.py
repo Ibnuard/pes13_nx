@@ -1,0 +1,61 @@
+"""Historical PERF35 build; the dispatch cleanup already existed in PERF34."""
+from pathlib import Path
+import hashlib, json, os, subprocess, sys, builtins
+
+p = Path(__file__).resolve().parents[1]
+w = p / "local/perf35"
+w.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("PES_BUILD_ROOT", "/home/blekjek/pes13-build")
+subprocess.run([sys.executable, str(p / "tests/perf34_config.py")], check=True)
+copy = json.loads((p / "local/perf34/copy-tests.json").read_text())
+for path, digest in copy["source_sha256"].items():
+    assert hashlib.sha256((p / path).read_bytes()).hexdigest() == digest
+
+path = p / "tools/build-perf25.py"
+text = path.read_text()
+text = text.replace("local/perf25", "local/perf35")
+text = text.replace("runtime-perf25-paircopy", "runtime-perf35-fast-jumptable")
+text = text.replace("pes13-nx-0.2.0-perf25-paircopy",
+                    "pes13-nx-0.2.0-perf35-fast-jumptable")
+text = text.replace("PES13-NX PERF25", "PES13-NX PERF35 FAST JUMPTABLE")
+text = text.replace("import perf25_patches as perf23_patches",
+                    "import perf35_patches as perf23_patches")
+text = text.replace(
+    "subprocess.run([sys.executable,str(p/'tests/perf25_copy.py')],env=env,check=True)",
+    "(w/'copy-tests.json').write_bytes((p/'local/perf34/copy-tests.json').read_bytes())",
+)
+
+real_compile = compile
+
+
+def compile_hook(source, filename, mode, *args, **kwargs):
+    if isinstance(source, str) and filename.endswith(
+            ("build-perf22.py", "build-perf23.py", "build-perf25.py")):
+        source = source.replace(
+            "assert 'wine_nx_perf25_completed(block, helper.env)' in generated",
+            "assert 'wine_nx_perf33_completed(block, helper.env)' in generated",
+        )
+        source = source.replace(
+            "assert 'wine_nx_perf22_block_end(addr, helper.end, helper.env)' in generated",
+            "assert 'wine_nx_perf33_block_end(addr, helper.end, helper.env)' in generated",
+        )
+        source = source.replace(
+            "new[0].read_text().replace('wine_nx_perf25_completed','wine_nx_perf22_completed')",
+            "new[0].read_text().replace('wine_nx_perf33_completed','wine_nx_perf22_completed').replace('wine_nx_perf33_block_end','wine_nx_perf22_block_end')",
+        )
+    return real_compile(source, filename, mode, *args, **kwargs)
+
+
+builtins.compile = compile_hook
+try:
+    exec(compile(text, str(path), "exec"),
+         {"__file__": str(path), "__name__": "__main__"})
+finally:
+    builtins.compile = real_compile
+
+report = json.loads((w / "verification.json").read_text())
+report.update(dict(base="PERF34 CONFIG", source_cleanup=True, source_cleanup_new_vs_perf34=False,
+                   save_mem=False, hot_diagnostic_atomics=False,
+                   target_match_fps=30, target_verified=False,
+                   hardware_tested=False))
+(w / "verification.json").write_text(json.dumps(report, indent=2) + "\n")

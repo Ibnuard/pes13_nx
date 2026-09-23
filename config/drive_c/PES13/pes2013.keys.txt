@@ -1,0 +1,18 @@
+# PES keyboard fallback. Native XInput takes priority when polled.
+# Face buttons follow Xbox positions: Switch B is Xbox A / short pass.
+UP=0x26
+DOWN=0x28
+LEFT=0x25
+RIGHT=0x27
+X=0x57
+Y=0x41
+L=0x51
+R=0x45
+ZL=0x5a
+ZR=0x43
+PLUS=0x1b
+MINUS=0x0d
+STICKL=0
+STICKR=0
+A=0x44
+B=0x58

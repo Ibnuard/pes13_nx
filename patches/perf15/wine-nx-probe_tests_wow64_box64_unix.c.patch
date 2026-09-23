@@ -1,0 +1,60 @@
+--- a/wine-nx-probe/tests/wow64_box64_unix.c
++++ b/wine-nx-probe/tests/wow64_box64_unix.c
+@@ -8,6 +8,11 @@
+ #include "wine/unixlib.h"
+ 
+ extern const unixlib_entry_t wine_nx_winebox64_unix_funcs[];
++
++/* Host fixture: no real Wine TEB exists in this standalone test process. */
++static TEB test_teb;
++static WOW64_CPURESERVED test_cpu;
++TEB *WINAPI NtCurrentTeb(void) { return &test_teb; }
+ 
+ static unsigned int run_calls, unix_calls, read_calls;
+ static BOOL partial_read;
+@@ -45,10 +50,15 @@
+     unsigned char buffer[4];
+     assert( ctx == &context && fs_base == 0x10002000 );
+     assert( gates->syscall == 0x10001000 && gates->unix_call == 0x10001010 );
+-    assert( host->read && !host->syscall && !host->unix_call && !opaque );
++    assert( host->read && !host->syscall && host->unix_call && !opaque );
+     assert( !completion && budget == 123 );
+     ++run_calls;
+     if (run_calls > 1) return run_status;
++    assert( host->context_replaced && !host->context_replaced( opaque ) );
++    test_teb.TlsSlots[WOW64_TLS_CPURESERVED] = &test_cpu;
++    test_cpu.Flags = WOW64_CPURESERVED_FLAG_RESET_STATE;
++    assert( host->context_replaced( opaque ) && !test_cpu.Flags );
++    assert( !host->context_replaced( opaque ) );
+     /* Guest reads cannot wrap into native address space or accept short copies. */
+     assert( host->read( opaque, 0xffffffff, buffer, sizeof(buffer) ) == STATUS_ACCESS_VIOLATION );
+     assert( !read_calls );
+@@ -61,6 +71,12 @@
+     assert( host->read( opaque, 0x10000000, buffer, sizeof(buffer) ) == STATUS_ACCESS_VIOLATION );
+     *executed = 7;
+     return STATUS_TIMEOUT;
++}
++
++void wine_nx_box64_last_fault( ULONG *address, ULONG *access )
++{
++    *address = 0x1234;
++    *access = 1;
+ }
+ 
+ static unsigned int invalidations;
+@@ -130,9 +146,15 @@
+     for (unsigned int i = 0; i < 800; ++i) assert( run( &p ) == STATUS_TIMEOUT );
+     assert( read_calls == 768 && trace_calls == 1536 );
+     wine_nx_runtime_verbose = 0;
++    assert( !p.fault_address && !p.fault_access );
+     run_status = STATUS_ACCESS_VIOLATION;
+     assert( run( &p ) == STATUS_ACCESS_VIOLATION );
++    assert( p.fault_address == 0x1234 && p.fault_access == 1 );
+     assert( error_calls == 1 && trace_calls == 1536 && read_calls == 768 );
++    for (unsigned int i = 0; i < 32; ++i) assert( run( &p ) == STATUS_ACCESS_VIOLATION );
++    assert( error_calls == 16 );
++    run_status = STATUS_TIMEOUT;
++    assert( run( &p ) == STATUS_TIMEOUT && !p.fault_address && !p.fault_access );
+     puts( "WoW64 tracing: quiet reads/logs suppressed, verbose toggle/cap and quiet errors passed" );
+ #endif
+ 

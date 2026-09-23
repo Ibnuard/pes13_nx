@@ -1,0 +1,10 @@
+# PES13: Winlator v7.1 Compatibility values adapted for Wine-NX build 108.
+# CALLRET=0 is retained from the previous hardware test (an extra override).
+# WAIT=1 is already enforced by this runtime; it is not a supported file key.
+BOX64_DYNAREC_SAFEFLAGS=2
+BOX64_DYNAREC_FASTNAN=0
+BOX64_DYNAREC_FASTROUND=0
+BOX64_DYNAREC_X87DOUBLE=1
+BOX64_DYNAREC_BIGBLOCK=0
+BOX64_DYNAREC_STRONGMEM=1
+BOX64_DYNAREC_CALLRET=0

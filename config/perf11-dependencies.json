@@ -1,0 +1,12 @@
+{
+  "base": "../dependencies.json",
+  "experiment": "PERF11",
+  "box64": {
+    "repository": "https://github.com/ptitSeb/box64.git",
+    "commit": "2f130fab1d6e1a4ee8a71dc60cfdfcc839ad192a",
+    "version": "0.4.4",
+    "upstream_integration_reference": "https://github.com/danfromtico/autorun/blob/99de116c87e25f35ce345579ed18e86af494c2f8/wine-nx-probe/cmake/Box64Core.cmake"
+  },
+  "dxvk": "Preserve installed variant; not included in PERF11 overlay",
+  "preset": "Preserve PERF8/PERF10 compatible preset and post-present BIGBLOCK policy"
+}

@@ -1,0 +1,24 @@
+# Local game, installation data, diagnostics and upstream build caches.
+/local/
+/dist/
+/.cache/
+/build/
+__pycache__/
+*.pyc
+*.log
+*.reg
+*.nro
+*.elf
+*.nacp
+*.exe
+*.dll
+*.drv
+*.acm
+*.img
+*.bin
+*.zip
+*.7z
+*.tar
+*.tar.gz
+*.tar.xz
+*.nsp

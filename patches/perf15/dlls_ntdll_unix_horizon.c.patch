@@ -1,0 +1,86 @@
+--- a/dlls/ntdll/unix/horizon.c
++++ b/dlls/ntdll/unix/horizon.c
+@@ -12158,7 +12158,8 @@
+  * libnx invokes this handler after svcReturnFromException, on its exception
+  * stack, so unwinding to an active user-mode setjmp does not strand a kernel
+  * exception. Native Wine faults retain the existing handling path. */
+-extern BOOL wine_nx_box64_handle_fault( ULONG_PTR address ) __attribute__((weak));
++extern BOOL wine_nx_box64_handle_fault( ULONG_PTR address, ULONG access, ULONG_PTR pc,
++                                        const unsigned long long *x ) __attribute__((weak));
+ /* Dynarec builds: the x86 instruction and registers behind a pc in translated code. */
+ extern int wine_nx_box64_describe_native_pc( ULONG_PTR pc, const unsigned long long *x,
+                                              char *buf, size_t size ) __attribute__((weak));
+@@ -12249,41 +12250,48 @@
+         unsigned long long x[31];
+         unsigned int i, j;
+ 
+-        /* Handled page faults are ordinary VM activity and must never hit the
+-         * SD log. The fault is fatal from here, so record full diagnostics. */
+-        snprintf( buf, sizeof(buf),
+-                  "[EXC] desc=0x%08x esr=0x%08x pc=0x%llx far=0x%llx sp=0x%llx lr=0x%llx kind=%s",
+-                  ctx->error_desc, ctx->esr,
+-                  (unsigned long long)ctx->pc.x, (unsigned long long)ctx->far.x,
+-                  (unsigned long long)ctx->sp.x, (unsigned long long)ctx->lr.x,
+-                  rec.ExceptionInformation[0] == EXCEPTION_EXECUTE_FAULT ? "exec" :
+-                  rec.ExceptionInformation[0] == EXCEPTION_WRITE_FAULT   ? "write" : "read" );
+-        wine_nx_runtime_trace( buf );
+-        snprintf( buf, sizeof(buf),
+-                  "[EXC] x0=0x%llx x1=0x%llx x2=0x%llx x3=0x%llx x18=0x%llx",
+-                  (unsigned long long)ctx->cpu_gprs[0].x, (unsigned long long)ctx->cpu_gprs[1].x,
+-                  (unsigned long long)ctx->cpu_gprs[2].x, (unsigned long long)ctx->cpu_gprs[3].x,
+-                  (unsigned long long)ctx->cpu_gprs[18].x );
+-        wine_nx_runtime_trace( buf );
++        static LONG fault_reports;
++
+         for (i = 0; i < 29; i++) x[i] = ctx->cpu_gprs[i].x;
+         x[29] = ctx->fp.x;
+         x[30] = ctx->lr.x;
+-        for (i = 4; i <= 30; i += 9)
++        /* Guest handlers may recover repeatedly; bound SD diagnostics but
++         * always pass the complete native snapshot to the engine. */
++        if (__atomic_add_fetch( &fault_reports, 1, __ATOMIC_RELAXED ) <= 16)
+         {
+-            int len = snprintf( buf, sizeof(buf), "[EXC]" );
+-
+-            for (j = i; j < i + 9 && j <= 30; j++)
+-                len += snprintf( buf + len, sizeof(buf) - len, " x%u=0x%llx", j, x[j] );
++            snprintf( buf, sizeof(buf),
++                      "[EXC] desc=0x%08x esr=0x%08x pc=0x%llx far=0x%llx sp=0x%llx lr=0x%llx kind=%s",
++                      ctx->error_desc, ctx->esr,
++                      (unsigned long long)ctx->pc.x, (unsigned long long)ctx->far.x,
++                      (unsigned long long)ctx->sp.x, (unsigned long long)ctx->lr.x,
++                      rec.ExceptionInformation[0] == EXCEPTION_EXECUTE_FAULT ? "exec" :
++                      rec.ExceptionInformation[0] == EXCEPTION_WRITE_FAULT   ? "write" : "read" );
+             wine_nx_runtime_trace( buf );
++            snprintf( buf, sizeof(buf),
++                      "[EXC] x0=0x%llx x1=0x%llx x2=0x%llx x3=0x%llx x18=0x%llx",
++                      (unsigned long long)ctx->cpu_gprs[0].x, (unsigned long long)ctx->cpu_gprs[1].x,
++                      (unsigned long long)ctx->cpu_gprs[2].x, (unsigned long long)ctx->cpu_gprs[3].x,
++                      (unsigned long long)ctx->cpu_gprs[18].x );
++            wine_nx_runtime_trace( buf );
++            for (i = 4; i <= 30; i += 9)
++            {
++                int len = snprintf( buf, sizeof(buf), "[EXC]" );
++
++                for (j = i; j < i + 9 && j <= 30; j++)
++                    len += snprintf( buf + len, sizeof(buf) - len, " x%u=0x%llx", j, x[j] );
++                wine_nx_runtime_trace( buf );
++            }
++            if (wine_nx_box64_describe_native_pc &&
++                wine_nx_box64_describe_native_pc( ctx->pc.x, x, buf, sizeof(buf) ))
++                wine_nx_runtime_trace( buf );
+         }
+-        if (wine_nx_box64_describe_native_pc &&
+-            wine_nx_box64_describe_native_pc( ctx->pc.x, x, buf, sizeof(buf) ))
+-            wine_nx_runtime_trace( buf );
+         /* ESR.FnV invalidates FAR. Never consume instruction aborts or faults
+          * outside the active interpreter's 32-bit guest address space. */
++        /* A guest's data abort goes back to it as an access violation, with
++         * whether it wrote (ESR ISS.WnR) and the registers it was in. */
+         if ((exception_class == 0x24 || exception_class == 0x25) && !(esr & (1u << 10)) &&
+             wine_nx_box64_handle_fault)
+-            wine_nx_box64_handle_fault( (ULONG_PTR)ctx->far.x );
++            wine_nx_box64_handle_fault( (ULONG_PTR)ctx->far.x, (esr >> 6) & 1, ctx->pc.x, x );
+         snprintf( buf, sizeof(buf), "[EXC] unhandled status=0x%08x; parking thread", (unsigned)status );
+         wine_nx_runtime_trace( buf );
+         /* Park rather than returning: libnx's exception_returnentry would

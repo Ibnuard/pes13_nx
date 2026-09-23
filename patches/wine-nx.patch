@@ -1,0 +1,913 @@
+--- a/wine-nx-probe/CMakeLists.txt
++++ b/wine-nx-probe/CMakeLists.txt
+@@ -883,7 +883,7 @@
+ 
+     add_custom_command(
+         OUTPUT "${RUNTIME_NACP_FILE}"
+-        COMMAND "${NACPTOOL}" --create "Wine-NX Runtime" "ticoverse.com" "0.1.0" "${RUNTIME_NACP_FILE}"
++        COMMAND "${NACPTOOL}" --create "PES13-NX Runtime" "PES13-NX / Wine-NX" "0.1.0" "${RUNTIME_NACP_FILE}"
+         VERBATIM
+     )
+ 
+@@ -896,3 +896,7 @@
+ 
+     add_custom_target(wine-nx-runtime-nro ALL DEPENDS "${RUNTIME_NRO_FILE}")
+ endif()
++
++# PES13 VA diagnostic: guard the fixed image before default services start.
++target_sources(wine-nx-runtime PRIVATE source/pes13_preload.c)
++target_link_options(wine-nx-runtime PRIVATE -Wl,--wrap=appletInitialize)
+--- a/dlls/win32u/font.c
++++ b/dlls/win32u/font.c
+@@ -6838,10 +6838,10 @@
+ #endif
+ 
+ #ifdef __SWITCH__
+-    load_switch_directory_fonts( "sdmc:/switch/wine/drive_c/windows/fonts",
++    load_switch_directory_fonts( "sdmc:/switch/pes13-nx/drive_c/windows/fonts",
+                                  "\\??\\C:\\windows\\fonts\\", 0 );
+-    load_switch_directory_fonts( "sdmc:/switch/wine/share/wine/fonts",
+-                                 "\\??\\Z:\\switch\\wine\\share\\wine\\fonts\\",
++    load_switch_directory_fonts( "sdmc:/switch/pes13-nx/share/wine/fonts",
++                                 "\\??\\Z:\\switch\\pes13-nx\\share\\wine\\fonts\\",
+                                  ADDFONT_EXTERNAL_FONT );
+ #else
+     /* Windows directory */
+--- a/dlls/ntdll/loader.c
++++ b/dlls/ntdll/loader.c
+@@ -1457,7 +1457,7 @@
+         return wine_nx_copy_ascii_wstr( src, len, path, size, FALSE );
+ 
+     if (len < 2 || src[1] != L':') return FALSE;
+-    if (src[0] == L'c' || src[0] == L'C') root = "sdmc:/switch/wine/drive_c";
++    if (src[0] == L'c' || src[0] == L'C') root = "sdmc:/switch/pes13-nx/drive_c";
+     else if (src[0] == L'z' || src[0] == L'Z') root = "sdmc:";
+     else return FALSE;
+ 
+@@ -1512,9 +1512,9 @@
+ {
+     static const char * const roots[] =
+     {
+-        "sdmc:/switch/wine/drive_c/windows/system32",
+-        "sdmc:/switch/wine/drive_c",
+-        "sdmc:/switch/wine"
++        "sdmc:/switch/pes13-nx/drive_c/windows/system32",
++        "sdmc:/switch/pes13-nx/drive_c",
++        "sdmc:/switch/pes13-nx"
+     };
+     char name[128];
+     FILE *file;
+@@ -3807,7 +3807,7 @@
+     ULONG i;
+ 
+     if (len < 2 || dos_dir[1] != L':') return FALSE;
+-    if (dos_dir[0] == L'c' || dos_dir[0] == L'C') root = "sdmc:/switch/wine/drive_c";
++    if (dos_dir[0] == L'c' || dos_dir[0] == L'C') root = "sdmc:/switch/pes13-nx/drive_c";
+     else if (dos_dir[0] == L'z' || dos_dir[0] == L'Z') root = "sdmc:";
+     else return FALSE;
+ 
+@@ -3994,9 +3994,9 @@
+     static const WCHAR dos_root[] = {'C',':','\\',0};
+     static const char * const system_dirs[] =
+     {
+-        "sdmc:/switch/wine/drive_c/windows/system32",
+-        "sdmc:/switch/wine/drive_c/windows",
+-        "sdmc:/switch/wine/drive_c"
++        "sdmc:/switch/pes13-nx/drive_c/windows/system32",
++        "sdmc:/switch/pes13-nx/drive_c/windows",
++        "sdmc:/switch/pes13-nx/drive_c"
+     };
+     char dll_name[256];
+     NTSTATUS status = STATUS_DLL_NOT_FOUND;
+--- a/dlls/ntdll/unix/horizon.c
++++ b/dlls/ntdll/unix/horizon.c
+@@ -4349,7 +4349,7 @@
+     if (!(horizon_session_data = calloc( 1, HORIZON_SESSION_MAPPING_SIZE )))
+         return HORIZON_STATUS_NO_MEMORY;
+ 
+-    snprintf( path, sizeof(path), "sdmc:/switch/wine/wine-nx-session-%u.shm", (unsigned int)getpid() );
++    snprintf( path, sizeof(path), "sdmc:/switch/pes13-nx/wine-nx-session-%u.shm", (unsigned int)getpid() );
+     fd = open( path, O_RDWR | O_CREAT | O_TRUNC, 0600 );
+     if (fd == -1)
+     {
+@@ -10165,7 +10165,7 @@
+     /* Each line reopens the file on the SD card. */
+     if (!&wine_nx_runtime_verbose || !wine_nx_runtime_verbose) return;
+     pthread_mutex_lock( &lock );
+-    if ((f = fopen( "sdmc:/switch/wine/horizon-trace.log", "a" )))
++    if ((f = fopen( "sdmc:/switch/pes13-nx/horizon-trace.log", "a" )))
+     {
+         __builtin_va_start( args, fmt );
+         vfprintf( f, fmt, args );
+@@ -12242,21 +12242,6 @@
+     else rec.ExceptionInformation[0] = EXCEPTION_READ_FAULT;
+     rec.ExceptionInformation[1] = (ULONG_PTR)ctx->far.x;
+ 
+-    snprintf( buf, sizeof(buf),
+-              "[EXC] desc=0x%08x esr=0x%08x pc=0x%llx far=0x%llx sp=0x%llx lr=0x%llx kind=%s",
+-              ctx->error_desc, ctx->esr,
+-              (unsigned long long)ctx->pc.x, (unsigned long long)ctx->far.x,
+-              (unsigned long long)ctx->sp.x, (unsigned long long)ctx->lr.x,
+-              rec.ExceptionInformation[0] == EXCEPTION_EXECUTE_FAULT ? "exec" :
+-              rec.ExceptionInformation[0] == EXCEPTION_WRITE_FAULT   ? "write" : "read" );
+-    wine_nx_runtime_trace( buf );
+-    snprintf( buf, sizeof(buf),
+-              "[EXC] x0=0x%llx x1=0x%llx x2=0x%llx x3=0x%llx x18=0x%llx",
+-              (unsigned long long)ctx->cpu_gprs[0].x, (unsigned long long)ctx->cpu_gprs[1].x,
+-              (unsigned long long)ctx->cpu_gprs[2].x, (unsigned long long)ctx->cpu_gprs[3].x,
+-              (unsigned long long)ctx->cpu_gprs[18].x );
+-    wine_nx_runtime_trace( buf );
+-
+     status = virtual_handle_fault( &rec, (void *)ctx->sp.x );
+     if (status)
+     {
+@@ -12264,7 +12249,22 @@
+         unsigned long long x[31];
+         unsigned int i, j;
+ 
+-        /* The fault is fatal from here: log every register, and the x86 side of translated code. */
++        /* Handled page faults are ordinary VM activity and must never hit the
++         * SD log. The fault is fatal from here, so record full diagnostics. */
++        snprintf( buf, sizeof(buf),
++                  "[EXC] desc=0x%08x esr=0x%08x pc=0x%llx far=0x%llx sp=0x%llx lr=0x%llx kind=%s",
++                  ctx->error_desc, ctx->esr,
++                  (unsigned long long)ctx->pc.x, (unsigned long long)ctx->far.x,
++                  (unsigned long long)ctx->sp.x, (unsigned long long)ctx->lr.x,
++                  rec.ExceptionInformation[0] == EXCEPTION_EXECUTE_FAULT ? "exec" :
++                  rec.ExceptionInformation[0] == EXCEPTION_WRITE_FAULT   ? "write" : "read" );
++        wine_nx_runtime_trace( buf );
++        snprintf( buf, sizeof(buf),
++                  "[EXC] x0=0x%llx x1=0x%llx x2=0x%llx x3=0x%llx x18=0x%llx",
++                  (unsigned long long)ctx->cpu_gprs[0].x, (unsigned long long)ctx->cpu_gprs[1].x,
++                  (unsigned long long)ctx->cpu_gprs[2].x, (unsigned long long)ctx->cpu_gprs[3].x,
++                  (unsigned long long)ctx->cpu_gprs[18].x );
++        wine_nx_runtime_trace( buf );
+         for (i = 0; i < 29; i++) x[i] = ctx->cpu_gprs[i].x;
+         x[29] = ctx->fp.x;
+         x[30] = ctx->lr.x;
+--- a/dlls/ntdll/unix/horizon_registry_server.h
++++ b/dlls/ntdll/unix/horizon_registry_server.h
+@@ -6,7 +6,7 @@
+ 
+ /* Where system.reg and user.reg live; the host test uses a scratch directory. */
+ #ifndef HORIZON_REGISTRY_DIR
+-#define HORIZON_REGISTRY_DIR "sdmc:/switch/wine/"
++#define HORIZON_REGISTRY_DIR "sdmc:/switch/pes13-nx/"
+ #endif
+ 
+ static long long horizon_registry_now(void)
+@@ -272,6 +272,9 @@
+     if (!--object->refs) horizon_server_free_object( object );
+ }
+ 
++#include "pes13_registry.h"
++extern int wine_nx_pes13_registry_enabled;
++
+ static unsigned int horizon_registry_init(void)
+ {
+     struct horizon_reg_key *machine, *user;
+@@ -309,6 +312,28 @@
+     }
+     horizon_registry_load_hive( machine, "system.reg" );
+     horizon_registry_load_hive( user, "user.reg" );
++    if (wine_nx_pes13_registry_enabled)
++    {
++        int loaded = horizon_registry_load_file(machine, HORIZON_REGISTRY_DIR "pes13-install.reg");
++        wine_nx_runtime_trace(loaded ? "[PES13-REG] pes13-install.reg loaded" :
++                                      "[PES13-REG] pes13-install.reg missing or unreadable");
++    }
++    {
++        unsigned int views, status;
++        char line[192];
++        status = pes13_registry_install(&horizon_registry, machine, wine_nx_pes13_registry_enabled, &views);
++        if (wine_nx_pes13_registry_enabled)
++        {
++            snprintf(line, sizeof(line), "[PES13-REG] installdir=C:\\PES13\\ views=%u status=%08x", views, status);
++            wine_nx_runtime_trace(line);
++        }
++        if (status)
++        {
++            horizon_reg_release(&horizon_registry, horizon_registry.root);
++            horizon_registry.root = NULL;
++            return status;
++        }
++    }
+     horizon_registry_hives[0] = machine;
+     horizon_registry_hives[1] = user;
+     memset( horizon_registry_generation, 0, sizeof(horizon_registry_generation) );
+@@ -473,6 +498,20 @@
+     case HORIZON_REQ_GET_KEY_VALUE:
+         status = horizon_reg_get_value( key, (const void *)data, data_size, &reply.value.type,
+                                         &reply.value.total, out, max, &size );
++        if (wine_nx_pes13_registry_enabled && key->namelen == 14 && key->parent &&
++            key->parent->namelen == 12 &&
++            !horizon_reg_compare(key->name, key->namelen, (const unsigned short[]){'P','E','S','2','0','1','3'}, 14) &&
++            !horizon_reg_compare(key->parent->name, key->parent->namelen, (const unsigned short[]){'K','O','N','A','M','I'}, 12))
++        {
++            char value[64], line[192];
++            unsigned int i, count = data_size / 2;
++            const unsigned short *wide = (const void *)data;
++            if (count >= sizeof(value)) count = sizeof(value) - 1;
++            for (i = 0; i < count; i++) value[i] = wide[i] >= 32 && wide[i] < 127 ? wide[i] : '?';
++            value[count] = 0;
++            snprintf(line, sizeof(line), "[PES13-REG] query %s status=%08x type=%u bytes=%u", value, status, reply.value.type, reply.value.total);
++            wine_nx_runtime_trace(line);
++        }
+         break;
+     case HORIZON_REQ_ENUM_KEY_VALUE:
+     {
+--- a/dlls/ntdll/unix/loader.c
++++ b/dlls/ntdll/unix/loader.c
+@@ -110,13 +110,13 @@
+ #define SYSTEMDLLPATH ""
+ #endif
+ #ifndef BINDIR
+-#define BINDIR "/switch/wine/bin"
++#define BINDIR "/switch/pes13-nx/bin"
+ #endif
+ #ifndef LIBDIR
+-#define LIBDIR "/switch/wine/lib"
++#define LIBDIR "/switch/pes13-nx/lib"
+ #endif
+ #ifndef DATADIR
+-#define DATADIR "/switch/wine/share"
++#define DATADIR "/switch/pes13-nx/share"
+ #endif
+ #endif
+ 
+@@ -517,7 +517,7 @@
+     const char *p;
+ 
+ #ifdef __SWITCH__
+-    if (!home) home = "/switch/wine";
++    if (!home) home = "/switch/pes13-nx";
+     if (!name) name = "wine";
+ #else
+     if (!home || !name)
+@@ -561,8 +561,8 @@
+ static void init_paths(void)
+ {
+ #ifdef __SWITCH__
+-    ntdll_dir = "/switch/wine/lib/wine/aarch64-unix";
+-    dll_dir = "/switch/wine/lib/wine";
++    ntdll_dir = "/switch/pes13-nx/lib/wine/aarch64-unix";
++    dll_dir = "/switch/pes13-nx/lib/wine";
+     bin_dir = BINDIR;
+     data_dir = DATADIR "/wine";
+     wineloader = build_path( ntdll_dir, "wine" );
+--- a/dlls/ntdll/unix/file.c
++++ b/dlls/ntdll/unix/file.c
+@@ -4196,7 +4196,7 @@
+     {
+         const char *drive_root = NULL;
+ 
+-        if (prefix[0] == 'c') drive_root = "sdmc:/switch/wine/drive_c";
++        if (prefix[0] == 'c') drive_root = "sdmc:/switch/pes13-nx/drive_c";
+         else if (prefix[0] == 'z') drive_root = "sdmc:";
+ 
+         if (drive_root)
+--- a/wine-nx-probe/source/runtime.c
++++ b/wine-nx-probe/source/runtime.c
+@@ -28,6 +28,9 @@
+ #include "compositor.h"
+ #include "std_stream_lines.h"
+ #include "thread_profile.h"
++#include "xinput.h"
++#include "../../dlls/xinput1_3/nx_pad.h"
++#include "pes13_controller.h"
+ 
+ /* The sampler finds an x86 context through these without Wine's headers. */
+ C_ASSERT( FIELD_OFFSET( TEB, TlsSlots[WOW64_TLS_CPURESERVED] ) == NX_PROF_TEB_CPU_AREA );
+@@ -44,13 +47,13 @@
+  * libnx's exception.s short-circuits to abort before calling our handler. */
+ u32 __nx_exception_ignoredebug = 1;
+ 
+-#define WINE_ROOT "sdmc:/switch/wine"
++#define WINE_ROOT "sdmc:/switch/pes13-nx"
+ #define WINE_DRIVE_C WINE_ROOT "/drive_c"
+ #define WINE_SYSTEM_DIR WINE_DRIVE_C "/windows/system32"
+ #define RUNTIME_DIR WINE_ROOT
+-#define DEFAULT_TARGET WINE_DRIVE_C "/curl/curl.exe"
++#define DEFAULT_TARGET WINE_DRIVE_C "/PES13/pes2013.exe"
+ #ifdef WINE_NX_BOX64_DYNAREC
+-#define WINE_NX_RUNTIME_BUILD "nx-wow64-dynarec-108"
++#define WINE_NX_RUNTIME_BUILD "pes13-nx-0.2.0-vk1-production"
+ #else
+ #define WINE_NX_RUNTIME_BUILD "nx-wow64-console-11"
+ #endif
+@@ -118,6 +121,7 @@
+ static pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
+ static char log_file_buffer[64 * 1024];
+ static int log_flusher_running;
++static int wine_nx_production;
+ 
+ /* Lines that must reach the SD card even if the process dies right after. */
+ static int log_line_is_urgent( const char *line )
+@@ -161,9 +165,8 @@
+     }
+ }
+ 
+-/* Flushing each line to the SD card serialized every thread behind the file
+- * lock. Buffer instead and flush often enough that a hang loses under 200 ms.
+- * The same thread emits idle partial output lines and reports interpreter speed. */
++/* The production profile keeps routine SD writes off the hot path. Fatal
++ * messages still flush immediately; routine logs may lose their final 5 s. */
+ static void *log_flusher( void *arg )
+ {
+     unsigned int ticks = 0;
+@@ -173,7 +176,9 @@
+     {
+         svcSleepThread( 200000000LL );
+         runtime_tick_std_streams();
+-        if (++ticks % 25 == 0) runtime_report_interpreter();
++        ++ticks;
++        if ((!wine_nx_production && ticks % 25 == 0) ||
++            (wine_nx_production && ticks % 300 == 0)) runtime_report_interpreter();
+         if (ticks % 5 == 0)
+         {
+             extern int horizon_registry_flush(void);
+@@ -181,9 +186,12 @@
+         }
+         if (ticks % 10 == 0) wine_nx_thread_balance();
+         runtime_alternate_clean();
+-        pthread_mutex_lock( &log_mutex );
+-        fflush( log_file );
+-        pthread_mutex_unlock( &log_mutex );
++        if (!wine_nx_production || ticks % 25 == 0)
++        {
++            pthread_mutex_lock( &log_mutex );
++            fflush( log_file );
++            pthread_mutex_unlock( &log_mutex );
++        }
+     }
+     return NULL;
+ }
+@@ -230,9 +238,9 @@
+ /* Per-operation traces (system calls, server requests, fonts, window painting)
+  * are formatted and written to the SD card as they happen, which slows the
+  * whole program down. Their call sites check this first; it is set from
+- * sdmc:/switch/wine/verbose.txt containing 1. */
++ * sdmc:/switch/pes13-nx/verbose.txt containing 1. */
+ int wine_nx_runtime_verbose;
+-/* The sampling profiler's [PROF] lines (thread_profile.c): sdmc:/switch/wine/profile.txt
++/* The sampling profiler's [PROF] lines (thread_profile.c): sdmc:/switch/pes13-nx/profile.txt
+  * containing 1, which the launcher's X toggles like Y does verbose.txt. */
+ static int runtime_profile;
+ /* Set by d3d9=dxvk in the program's own settings (launcher_settings.h): its DLL
+@@ -240,15 +248,15 @@
+ static int runtime_d3d9_dxvk;
+ 
+ /* libdrm_nouveau's switch for CPU-cacheable pinned GPU memory, cleared by
+- * sdmc:/switch/wine/gl-uncached.txt containing 1. */
++ * sdmc:/switch/pes13-nx/gl-uncached.txt containing 1. */
+ extern int wine_nx_nouveau_pin_cached __attribute__((weak));
+-/* Set by sdmc:/switch/wine/gl-noclean.txt containing 1: submissions skip the CPU
++/* Set by sdmc:/switch/pes13-nx/gl-noclean.txt containing 1: submissions skip the CPU
+  * cache clean of pinned GPU buffers, to see whether the GPU needs it. */
+ extern int wine_nx_nouveau_skip_clean __attribute__((weak));
+ 
+ /* Whether the display driver registers its GPU, source and monitor with
+  * win32u's device manager, which programs enumerate and wined3d insists on.
+- * sdmc:/switch/wine/no-display-devices.txt containing 1 goes back to the
++ * sdmc:/switch/pes13-nx/no-display-devices.txt containing 1 goes back to the
+  * forced virtual screen, in case that walk of the registry misbehaves. */
+ int wine_nx_display_devices = 1;
+ 
+@@ -342,7 +350,7 @@
+ }
+ 
+ /* The OpenGL compositor (compositor.c) presents the screen, unless
+- * sdmc:/switch/wine/framebuffer.txt containing 1 keeps the framebuffer. */
++ * sdmc:/switch/pes13-nx/framebuffer.txt containing 1 keeps the framebuffer. */
+ static int wine_nx_compositor_mode = 1;
+ extern const struct compositor_backend wine_nx_compositor_egl_backend;
+ 
+@@ -510,7 +518,7 @@
+ /* The console has no keyboard, so the controller stands in for one. These are
+  * the controls that send keys, in the order of the bits in
+  * wine_nx_pad_key_state. A and B are the mouse buttons unless given a key.
+- * sdmc:/switch/wine/keys.txt overrides the virtual-key codes, one NAME=code
++ * sdmc:/switch/pes13-nx/keys.txt overrides the virtual-key codes, one NAME=code
+  * line each, and a program's own NAME.keys.txt next to it overrides those, so
+  * a game that wants other keys needs no new build. */
+ enum
+@@ -527,19 +535,32 @@
+     "ZL", "ZR", "PLUS", "MINUS", "STICKL", "STICKR", "A", "B"
+ };
+ 
+-/* Defaults that suit a game: the d-pad and left stick steer, the triggers
+- * accelerate and brake, and the face and shoulder buttons carry what a keyboard
+- * usually has under the left hand. */
+-unsigned short wine_nx_pad_keys[WINE_NX_KEY_COUNT] =
+-{
+-    0x26, 0x28, 0x25, 0x27,  /* arrows */
+-    0x20, 0x46,              /* X space, Y f */
+-    0x09, 0x10,              /* L tab, R shift */
+-    0x28, 0x26,              /* ZL down, ZR up */
+-    0x1b, 0x09,              /* plus escape, minus tab */
+-    0x11, 0x12,              /* stick presses: control, alt */
+-    0, 0,                    /* A and B: none, so they click */
+-};
++/* PES defaults, with native XInput still taking priority when the game polls it. */
++unsigned short wine_nx_pad_keys[WINE_NX_KEY_COUNT] = PES13_KEY_DEFAULTS;
++int wine_nx_pes13_keyboard_only;
++int wine_nx_pes13_gamepad_only;
++static int pes13_controller_trace_enabled;
++static pthread_mutex_t pes13_controller_trace_mutex = PTHREAD_MUTEX_INITIALIZER;
++static struct pes13_input_trace_state pes13_controller_trace_states[PES13_INPUT_TRACE_SOURCES];
++
++/* Native input, XInput replies and delivered keyboard events each get a
++ * separate fixed budget. No verbose tracing and no axis-per-frame logging. */
++void wine_nx_pes13_input_trace(unsigned int source, uint64_t raw, unsigned int value, unsigned int mode)
++{
++    static const char *const names[] = { "pad", "xinput", "key" };
++    struct pes13_input_trace_state *state;
++    if (!pes13_controller_trace_enabled || source >= PES13_INPUT_TRACE_SOURCES) return;
++    pthread_mutex_lock(&pes13_controller_trace_mutex);
++    state = &pes13_controller_trace_states[source];
++    if (pes13_input_trace_changed(state, raw, value, mode))
++    {
++        log_line("[PES13-INPUT] %s #%u raw=%04llx value=%08x mode=%u", names[source],
++                 state->count, (unsigned long long)raw, value, mode);
++        if (state->count == PES13_INPUT_TRACE_LIMIT)
++            log_line("[PES13-INPUT] %s trace limit reached; further events suppressed", names[source]);
++    }
++    pthread_mutex_unlock(&pes13_controller_trace_mutex);
++}
+ 
+ /* Which of those controls are held, read by the display driver's ProcessEvents
+  * (dlls/win32u/winnx_drv.c), which turns the changes into key events. */
+@@ -569,7 +590,7 @@
+         wine_nx_pointer_tick = armGetSystemTick();
+         wine_nx_pointer_ready = 1;
+         if (wine_nx_runtime_verbose)
+-            log_line( "[NXINPUT] pointer ready: touchscreen, right stick cursor, A left button, B right button" );
++            log_line( "[NXINPUT] pointer ready: touchscreen; controller uses PES keys unless XInput is active" );
+     }
+     padUpdate( &wine_nx_pad );
+     now = armGetSystemTick();
+@@ -577,8 +598,9 @@
+     stick = padGetStickPos( &wine_nx_pad, 1 );
+     /* A program reading the controller through XInput gets it whole: no keys,
+      * clicks or cursor come from it meanwhile. The touchscreen still points. */
+-    xinput_poll = wine_nx_xinput_last_poll;
+-    gamepad = xinput_poll && (xinput_poll >= now || armTicksToNs( now - xinput_poll ) < 1000000000ull);
++    xinput_poll = __atomic_load_n(&wine_nx_xinput_last_poll, __ATOMIC_RELAXED);
++    gamepad = pes13_input_uses_xinput(now, xinput_poll, armNsToTicks(1000000000ull),
++                                     wine_nx_pes13_keyboard_only, wine_nx_pes13_gamepad_only);
+     if (hidGetTouchScreenStates( &touch, 1 ) && touch.count > 0)
+     {
+         int old_x = (int)wine_nx_pointer.x, old_y = (int)wine_nx_pointer.y;
+@@ -616,6 +638,7 @@
+         if (steer.x >  12000) keys |= 1u << WINE_NX_KEY_RIGHT;
+         if (gamepad) keys = 0;
+         __atomic_store_n( &wine_nx_pad_key_state, keys, __ATOMIC_RELAXED );
++        wine_nx_pes13_input_trace(0, held & 0xffff, keys, gamepad);
+     }
+     *x = (int)wine_nx_pointer.x;
+     *y = (int)wine_nx_pointer.y;
+@@ -796,8 +819,8 @@
+     if (!wine_nx_runtime_verbose)
+     {
+         /* Without verbose traces a white screen says nothing about whether a
+-         * program is still loading, computing or drawing. Every 10 seconds, if
+-         * anything changed: completed file reads and the time inside NtReadFile,
++         * program is still loading, computing or drawing. Every 10 seconds,
++         * including during stalls: completed file reads and time in NtReadFile,
+          * read requests to the SD card, their time and the reads the cache
+          * served, system calls, frames shown and dynarec entries. */
+         extern unsigned int wine_nx_file_reads __attribute__((weak));
+@@ -826,7 +849,7 @@
+         extern unsigned int wine_nx_gl_explicit_flushes __attribute__((weak));
+         extern int wine_nx_gl_pinned_memory __attribute__((weak));
+         extern unsigned int wine_nx_syscall_counts[] __attribute__((weak));
+-        static unsigned int calls, last_reads = ~0u, last_frames = ~0u;
++        static unsigned int calls;
+         static u64 start;
+         unsigned int reads = &wine_nx_file_reads ? __atomic_load_n( &wine_nx_file_reads, __ATOMIC_RELAXED ) : 0;
+         unsigned int gl_frames = &wine_nx_gl_swaps ? __atomic_load_n( &wine_nx_gl_swaps, __ATOMIC_RELAXED ) : 0;
+@@ -839,9 +862,8 @@
+         char native[256] = "", gl[512] = "", audio[32] = "", systop[64] = "";
+ 
+         if (!start) start = now;
+-        if (++calls % 2 || (reads == last_reads && frames == last_frames)) return;
+-        last_reads = reads;
+-        last_frames = frames;
++        /* Keep a low-rate heartbeat even when asset reads and frames stall. */
++        if (++calls % 2) return;
+         /* The three system calls made most since the last line, as id:calls: a
+          * program's busy loop shows here without verbose traces. */
+         if (wine_nx_syscall_counts)
+@@ -1210,6 +1232,8 @@
+     "WINE_D3D_CONFIG=cs_spin_count=64,explicit_buffer_flush=1\0"
+     "windir=C:\\windows\0";
+ 
++#include "pes13_graphics.h"
++
+ /* Horizon has no console device: the standard handles are files next to the
+  * runtime, copied into this log when the process exits. */
+ static HANDLE runtime_open_std_file( const char *path, ACCESS_MASK access, ULONG disposition )
+@@ -1236,7 +1260,8 @@
+     char cmdline[1024], args_buf[896], args_path[512];
+     size_t chars, size, i;
+     WCHAR *cursor;
+-    const char *cmdline_str;
++    const char *cmdline_str, *environment;
++    size_t environment_bytes;
+ 
+     if (!target_to_dos_path( target, dos_path, dos_path_size )) return NULL;
+     dos_dirname( dos_path, current_dir, sizeof(current_dir) );
+@@ -1250,17 +1275,10 @@
+     if ((chars = strlen( current_dir )) && current_dir[chars - 1] != '\\' && chars + 1 < sizeof(current_dir))
+         memcpy( current_dir + chars, "\\", 2 );
+ 
+-    /* Read args.txt next to the target NRO (sdmc:/switch/wine/args.txt).
++    /* Read args.txt next to the target NRO (sdmc:/switch/pes13-nx/args.txt).
+      * Format expected: "<argv[0]> <args...>" — a full Win32 command line.
+      * If present, use it verbatim as CommandLine so curl etc. see args via
+      * GetCommandLineA/W. Otherwise fall back to the dos_path alone. */
+-    /* A program's own controls, over keys.txt: SPEED2.EXE reads SPEED2.keys.txt. */
+-    {
+-        char keys_path[512];
+-
+-        if (target[1] != ':' && launcher_keys_path( target, keys_path, sizeof(keys_path) ))
+-            read_key_map( keys_path );
+-    }
+     /* Its own Box64 options, read when its first x86 code runs: SPEED2.box64.txt. */
+     {
+         extern char wine_nx_box64_options_path[] __attribute__((weak));
+@@ -1294,7 +1312,14 @@
+     chars += strlen( cmdline_str ) + 1;
+     chars += strlen( dos_path ) + 1;
+     chars += strlen( nt_path ) + 1;
+-    chars += sizeof(runtime_environment);
++    if (runtime_d3d9_dxvk)
++    {
++        environment = runtime_environment;
++        environment_bytes = sizeof(runtime_environment);
++        log_line("[PES13-GFX] DXVK Vulkan; WineD3D CSMT override inactive");
++    }
++    else environment = pes13_graphics_environment(target, &environment_bytes);
++    chars += environment_bytes;
+     size = sizeof(*params) + chars * sizeof(WCHAR);
+ 
+     if (!(params = calloc( 1, size ))) return NULL;
+@@ -1316,9 +1341,9 @@
+     put_process_string( &cursor, &params->WindowTitle, dos_path );
+     put_process_string( &cursor, main_nt_name, nt_path );
+     params->Environment = cursor;
+-    for (i = 0; i < sizeof(runtime_environment); i++)
+-        *cursor++ = (unsigned char)runtime_environment[i];
+-    params->EnvironmentSize = sizeof(runtime_environment) * sizeof(WCHAR);
++    for (i = 0; i < environment_bytes; i++)
++        *cursor++ = (unsigned char)environment[i];
++    params->EnvironmentSize = environment_bytes * sizeof(WCHAR);
+ 
+     params->hStdInput = runtime_open_std_file( RUNTIME_DIR "/stdin.txt", GENERIC_READ, FILE_OPEN_IF );
+     params->hStdOutput = runtime_open_std_file( RUNTIME_DIR "/stdout.txt", GENERIC_WRITE, FILE_OVERWRITE_IF );
+@@ -1726,11 +1751,6 @@
+     }
+     fclose( file );
+     return status;
+-}
+-
+-static int launcher_machine( const char *path, unsigned short *machine )
+-{
+-    return runtime_target_machine( path, machine ) != STATUS_SUCCESS;
+ }
+ 
+ #ifdef WINE_NX_BOX64_INTERPRETER
+@@ -1888,6 +1908,10 @@
+ #undef IMAGE_FIELD
+ }
+ 
++#include "pes13_controller_ui.h"
++
++int wine_nx_pes13_registry_enabled;
++
+ int main( int argc, char **argv )
+ {
+     char target[512] = DEFAULT_TARGET;
+@@ -1902,9 +1926,13 @@
+     unsigned int status;
+     unsigned int ldr_status = STATUS_INVALID_IMAGE_FORMAT;
+     unsigned int attach_status = STATUS_INVALID_IMAGE_FORMAT;
+-    int autorun;
++    const int autorun = 1;
+     USHORT target_machine;
+     int sd_cache = wine_nx_sd_cache_install();  /* before any file on the card is opened */
++
++    /* A forwarder only needs this NRO path; no target argument or next-load. */
++    (void)argc;
++    (void)argv;
+ 
+     log_main_thread = pthread_self();
+     log_main_thread_set = 1;
+@@ -1915,7 +1943,7 @@
+     mkdir( WINE_DRIVE_C "/windows", 0777 );
+     mkdir( WINE_DRIVE_C "/windows/temp", 0777 );
+     mkdir( WINE_SYSTEM_DIR, 0777 );
+-    log_file = fopen( RUNTIME_DIR "/wine-nx-runtime.log", "w" );
++    log_file = fopen( RUNTIME_DIR "/pes13-nx.log", "w" );
+     if (log_file)
+     {
+         pthread_t flusher;
+@@ -1924,8 +1952,8 @@
+         log_flusher_running = !pthread_create( &flusher, NULL, log_flusher, NULL );
+     }
+ 
+-    autorun = read_bool_file( RUNTIME_DIR "/run-entry.txt" );
+     wine_nx_runtime_verbose = read_bool_file( RUNTIME_DIR "/verbose.txt" );
++    wine_nx_production = read_bool_file(RUNTIME_DIR "/production.txt");
+     /* Pinned GPU buffers are CPU-cacheable unless gl-uncached.txt asks for the
+      * old mapping, which is there to compare the two. */
+     if (&wine_nx_nouveau_pin_cached && read_bool_file( RUNTIME_DIR "/gl-uncached.txt" ))
+@@ -1942,6 +1970,21 @@
+     log_line( "[INIT] core balancing %s (no-balance.txt)", wine_nx_balance_enabled ? "on" : "off" );
+     runtime_profile = read_bool_file( RUNTIME_DIR "/profile.txt" );
+     read_key_map( RUNTIME_DIR "/keys.txt" );
++    read_key_map( WINE_DRIVE_C "/PES13/pes2013.keys.txt" );
++    wine_nx_pes13_keyboard_only = read_bool_file(RUNTIME_DIR "/controller-keyboard.txt");
++    wine_nx_pes13_gamepad_only = read_bool_file(RUNTIME_DIR "/controller-gamepad.txt");
++    if (wine_nx_pes13_keyboard_only) wine_nx_pes13_gamepad_only = 0;
++    pes13_controller_trace_enabled = read_bool_file(RUNTIME_DIR "/controller-trace.txt");
++    log_line("[PES13-INPUT] policy=%s trace=%s production=%s (max 128 changes per source)",
++             wine_nx_pes13_keyboard_only ? "keyboard-only" :
++             wine_nx_pes13_gamepad_only ? "gamepad-only" : "auto-xinput",
++             pes13_controller_trace_enabled ? "on" : "off",
++             wine_nx_production ? "on" : "off");
++    log_line("[PES13-INPUT] keyboard VK: B=%02x A=%02x Y=%02x X=%02x Plus=%02x Minus=%02x",
++             wine_nx_pad_keys[WINE_NX_KEY_B], wine_nx_pad_keys[WINE_NX_KEY_A],
++             wine_nx_pad_keys[WINE_NX_KEY_Y], wine_nx_pad_keys[WINE_NX_KEY_X],
++             wine_nx_pad_keys[WINE_NX_KEY_PLUS], wine_nx_pad_keys[WINE_NX_KEY_MINUS]);
++    pes13_controller_check(read_bool_file(RUNTIME_DIR "/controller-test.txt"));
+     if (read_bool_file( RUNTIME_DIR "/no-display-devices.txt" )) wine_nx_display_devices = 0;
+     log_line( "[INIT] display devices %s (no-display-devices.txt)",
+               wine_nx_display_devices ? "registered" : "off" );
+@@ -1953,6 +1996,7 @@
+      * reports what its NVK offers, for Vulkan and DXVK (vulkan_probe.c). */
+     {
+         int vulkan_probe = read_bool_file( RUNTIME_DIR "/vulkan-probe.txt" );
++        log_line("[PES13-VK] build=%s Mesa=26.2.2 commit=b297e230ef88c6c88df2561becf864f979f494a6", WINE_NX_RUNTIME_BUILD);
+ 
+         log_line( "[INIT] Mesa from mesa-switch: OpenGL through nvc0, Vulkan through NVK; Vulkan probe %s (vulkan-probe.txt)",
+                   vulkan_probe ? "on" : "off" );
+@@ -1964,55 +2008,9 @@
+         }
+     }
+ #endif
+-    if (argc > 1 && argv[1] && argv[1][0]) snprintf( target, sizeof(target), "%s", argv[1] );
+-    else
+-    {
+-        struct wine_nx_launcher_options options =
+-        {
+-            .runtime_dir = RUNTIME_DIR,
+-            .build = WINE_NX_RUNTIME_BUILD,
+-            .machine_of = launcher_machine,
+-#ifdef WINE_NX_MESA_SWITCH
+-            .vulkan = 1,
+-#endif
+-            .verbose = wine_nx_runtime_verbose,
+-            .profile = runtime_profile,
+-            .framebuffer = !wine_nx_compositor_mode,
+-        };
+-        int chosen;
+-
+-        /* Without a program on the command line, let the user choose one;
+-         * target.txt only preselects the last choice. The launcher draws with
+-         * SDL, so the console gives up the screen until it returns. */
+-        read_first_line( RUNTIME_DIR "/target.txt", target, sizeof(target) );
+-        pthread_mutex_lock( &log_mutex );
+-        if (log_file) fflush( log_file );
+-        pthread_mutex_unlock( &log_mutex );
+-        consoleExit( NULL );
+-        wine_nx_console_active = 0;
+-        chosen = wine_nx_launcher_run( &options, target, sizeof(target) );
+-        /* The console stays off from here: after SDL's EGL surface let the
+-         * screen go, libnx's console was set up but could not dequeue a buffer,
+-         * and its first line aborted in framebufferBegin (build 106). The log
+-         * goes to the file until the compositor or the framebuffer, which set
+-         * up every buffer as EGL does, takes the screen. */
+-        pthread_mutex_lock( &log_mutex );
+-        if (log_file) fflush( log_file );
+-        pthread_mutex_unlock( &log_mutex );
+-        wine_nx_runtime_verbose = options.verbose;
+-        runtime_profile = options.profile;
+-        wine_nx_compositor_mode = !options.framebuffer;
+-        if (!chosen)
+-        {
+-            log_line( "[LAUNCHER] closed without starting a program" );
+-            pthread_mutex_lock( &log_mutex );
+-            if (log_file) fflush( log_file );
+-            pthread_mutex_unlock( &log_mutex );
+-            consoleExit( NULL );
+-            return 0;
+-        }
+-        autorun = 1;
+-    }
++    /* Launch PES directly, keeping the same console and GPU ownership as
++     * the previously tested argv[1] startup path. Do not enter the SDL menu. */
++    log_line( "[PES13-BOOT] single NRO; launching %s", target );
+ 
+     /* The program's own settings, written by the launcher next to it, over the global files. */
+     {
+@@ -2044,18 +2042,33 @@
+ 
+     log_line( "wine-nx-runtime: generic Wine ntdll PE loader path" );
+     log_line( "[BUILD] %s", WINE_NX_RUNTIME_BUILD );
++    {
++        extern int wine_nx_pes13_preload_report(void);
++        if (!wine_nx_pes13_preload_report()) park_forever();
++        /* Keep Wine's own unconstrained bootstrap allocations out as well. */
++        if (setenv( "WINEPRELOADRESERVE", "400000-1c9a000", 1 ))
++        {
++            log_line( "[PES13-VA] could not set Wine preload exclusion" );
++            park_forever();
++        }
++        log_line( "[PES13-VA] Wine preload exclusion=400000-1c9a000" );
++    }
+     log_line( "[SDCACHE] %s", sd_cache ? "sdmc reads cached: 128 KB chunks, 8 per file, 32 MB in all"
+                                       : "no sdmc device; reads are not cached" );
+     log_line( "[INIT] verbose traces %s (verbose.txt)", wine_nx_runtime_verbose ? "on" : "off" );
+     log_line( "[INIT] profiler %s (profile.txt)", runtime_profile ? "on" : "off" );
+     log_line( "[INIT] windows shown by %s", wine_nx_compositor_mode ? "the OpenGL compositor" : "the framebuffer" );
+-    /* After the launcher, where X may have turned it on or off. */
++    /* Start profiling only when enabled in the PES configuration. */
+     if (runtime_profile)
+     {
+         extern void wine_nx_profile_start( void );
+         wine_nx_profile_start();
+     }
+     log_line( "[TARGET] %s", target );
++    wine_nx_pes13_registry_enabled =
++        !strcmp(target, "sdmc:/switch/pes13-nx/drive_c/PES13/pes2013.exe") ||
++        !strcmp(target, "sdmc:/switch/pes13-nx/drive_c/PES13/settings.exe");
++    log_line( "[PES13-REG] installation metadata %s", wine_nx_pes13_registry_enabled ? "enabled" : "disabled" );
+ 
+     status = runtime_target_machine( target, &target_machine );
+     if (status || (status = horizon_set_process_machine( target_machine )))
+--- a/wine-nx-probe/source/launcher_settings.h
++++ b/wine-nx-probe/source/launcher_settings.h
+@@ -5,7 +5,7 @@
+  * A program's own settings live next to it, named after it: SPEED2.EXE reads
+  * SPEED2.wine-nx.txt. The launcher writes them and the runtime applies them to
+  * the program it starts, whether the launcher chose it or target.txt did.
+- * The launcher's own look is in sdmc:/switch/wine/launcher.txt.
++ * The launcher's own look is in sdmc:/switch/pes13-nx/launcher.txt.
+  */
+ #ifndef WINE_NX_LAUNCHER_SETTINGS_H
+ #define WINE_NX_LAUNCHER_SETTINGS_H
+--- a/wine-nx-probe/source/launcher_console.c
++++ b/wine-nx-probe/source/launcher_console.c
+@@ -79,11 +79,11 @@
+ 
+     printf( CONSOLE_ESC(2J) CONSOLE_ESC(1;1H) );
+     printf( CONSOLE_CYAN "Wine-NX" CONSOLE_RESET "  %s\n", build );
+-    printf( "Choose a Windows program from sdmc:/switch/wine/drive_c\n\n" );
++    printf( "Choose a Windows program from sdmc:/switch/pes13-nx/drive_c\n\n" );
+     if (!count)
+     {
+         printf( CONSOLE_YELLOW "No Windows programs (.exe) were found.\n" CONSOLE_RESET );
+-        printf( "Copy programs into sdmc:/switch/wine/drive_c, then start Wine-NX again.\n" );
++        printf( "Copy programs into sdmc:/switch/pes13-nx/drive_c, then start Wine-NX again.\n" );
+     }
+     for (i = first; i < count && i < first + LAUNCHER_ROWS; i++)
+     {
+--- a/wine-nx-probe/source/thread_profile.h
++++ b/wine-nx-probe/source/thread_profile.h
+@@ -20,7 +20,7 @@
+ /* Called by a thread whose cores the program chose; the balancer leaves it. */
+ void wine_nx_thread_affinity_fixed( void );
+ /* Every two seconds: moves threads so the busiest ones get cores of their own
+- * ([BALANCE]). Cleared by sdmc:/switch/wine/no-balance.txt. */
++ * ([BALANCE]). Cleared by sdmc:/switch/pes13-nx/no-balance.txt. */
+ void wine_nx_thread_balance( void );
+ extern int wine_nx_balance_enabled;
+ 
+--- a/wine-nx-probe/source/launcher_list.h
++++ b/wine-nx-probe/source/launcher_list.h
+@@ -13,11 +13,11 @@
+ #include <stdio.h>
+ 
+ #define LAUNCHER_MAX_ENTRIES 256
+-#define LAUNCHER_DRIVE_C "sdmc:/switch/wine/drive_c"
++#define LAUNCHER_DRIVE_C "sdmc:/switch/pes13-nx/drive_c"
+ 
+ struct launcher_entry
+ {
+-    char path[512];          /* sdmc:/switch/wine/drive_c/... */
++    char path[512];          /* sdmc:/switch/pes13-nx/drive_c/... */
+     char dos[256];           /* C:\... */
+     unsigned short machine;  /* IMAGE_FILE_MACHINE_* */
+ };
+--- a/wine-nx-probe/source/vulkan_probe.c
++++ b/wine-nx-probe/source/vulkan_probe.c
+@@ -1,5 +1,5 @@
+ /* Copyright 2026 Wine-NX contributors. LGPL-2.1-or-later.
+- * With sdmc:/switch/wine/vulkan-probe.txt containing 1, report what the
++ * With sdmc:/switch/pes13-nx/vulkan-probe.txt containing 1, report what the
+  * loaderless NVK from build-mesa-switch.sh offers on this console, as [NXVK]
+  * lines: the instance, the GPU, each requirement of DXVK's d3d9 baseline
+  * profile (VP_DXVK_requirements.json in DXVK), what Wine needs to map Vulkan
+--- a/wine-nx-probe/source/launcher.c
++++ b/wine-nx-probe/source/launcher.c
+@@ -811,7 +811,7 @@
+                           l->program_count ? "Every program is hidden" : "No Windows programs yet", ui->value );
+         ui_text_wrapped( ui, ui->normal, ui->width / 2, ui->height / 2, 900, 3,
+                          l->program_count ? "Turn on \"Show hidden programs\" in Settings (X)."
+-                                          : "Copy programs into sdmc:/switch/wine/drive_c,\nor press - to find one anywhere on the SD card.",
++                                          : "Copy programs into sdmc:/switch/pes13-nx/drive_c,\nor press - to find one anywhere on the SD card.",
+                          ui->dim, 1 );
+     }
+     ui_footer( ui, hints, sizeof(hints) / sizeof(hints[0]) );
+--- a/wine-nx-probe/source/thread_profile.c
++++ b/wine-nx-probe/source/thread_profile.c
+@@ -7,7 +7,7 @@
+  * core over the interval, from the kernel's tick count, and the core it is on,
+  * and a [SERVER] line with the time spent in round trips to Wine's server.
+  *
+- * With sdmc:/switch/wine/profile.txt, a sampler also pauses the busiest threads
++ * With sdmc:/switch/pes13-nx/profile.txt, a sampler also pauses the busiest threads
+  * every 2 ms, reads where they are and lets them run again. [PROF] lines split
+  * each one's time between translated x86 code (named by module), ARM64 PE
+  * modules (wow64.dll's thunks, ntdll.dll), the runtime's own code (Mesa, Wine's
+--- a/wine-nx-probe/source/xinput_unix.c
++++ b/wine-nx-probe/source/xinput_unix.c
+@@ -25,6 +25,8 @@
+  * recent the runtime stops turning the pad into keys and mouse clicks
+  * (wine_nx_pointer_poll in runtime.c), so the program does not get both. */
+ u64 wine_nx_xinput_last_poll;
++extern int wine_nx_pes13_keyboard_only;
++extern void wine_nx_pes13_input_trace(unsigned int source, uint64_t raw, unsigned int value, unsigned int mode);
+ 
+ static pthread_mutex_t pad_mutex = PTHREAD_MUTEX_INITIALIZER;
+ static PadState pad;
+@@ -36,9 +38,17 @@
+ {
+     struct nx_xinput_state_params *params = args;
+     XINPUT_GAMEPAD gamepad;
++    u64 held = 0;
++    unsigned int mapped = 0;
+ 
+     params->connected = 0;
+-    if (params->index) return STATUS_SUCCESS;  /* player 1 only */
++    if (params->index) return STATUS_SUCCESS; /* Other slots must not consume player 1 trace budget. */
++    if (wine_nx_pes13_keyboard_only)
++    {
++        /* A diagnostic fallback must not deliver keyboard and gamepad together. */
++        wine_nx_pes13_input_trace(1, 0, 0, params->index & 0xff);
++        return STATUS_SUCCESS;
++    }
+     pthread_mutex_lock( &pad_mutex );
+     if (!pad_ready)
+     {
+@@ -51,7 +61,9 @@
+     {
+         HidAnalogStickState left = padGetStickPos( &pad, 0 ), right = padGetStickPos( &pad, 1 );
+ 
+-        nx_xinput_map( padGetButtons( &pad ), left.x, left.y, right.x, right.y, &gamepad );
++        held = padGetButtons(&pad);
++        nx_xinput_map( held, left.x, left.y, right.x, right.y, &gamepad );
++        mapped = gamepad.wButtons | (!!gamepad.bLeftTrigger << 16) | (!!gamepad.bRightTrigger << 17);
+         if (memcmp( &gamepad, &last_gamepad, sizeof(gamepad) ))
+         {
+             last_gamepad = gamepad;
+@@ -60,9 +72,10 @@
+         params->connected = 1;
+         params->state.dwPacketNumber = packet;
+         params->state.Gamepad = gamepad;
+-        wine_nx_xinput_last_poll = armGetSystemTick();
++        __atomic_store_n(&wine_nx_xinput_last_poll, armGetSystemTick(), __ATOMIC_RELAXED);
+     }
+     pthread_mutex_unlock( &pad_mutex );
++    wine_nx_pes13_input_trace(1, held & 0xffff, mapped, params->connected << 8);
+     return STATUS_SUCCESS;
+ }
+ 
+--- a/dlls/win32u/winnx_drv.c
++++ b/dlls/win32u/winnx_drv.c
+@@ -19,6 +19,7 @@
+ #include "config.h"
+ 
+ #include <stdio.h>
++#include <stdint.h>
+ #include <pthread.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -594,6 +595,8 @@
+ extern unsigned int wine_nx_pad_key_state __attribute__((weak));
+ extern unsigned short wine_nx_pad_keys[] __attribute__((weak));
+ 
++extern void wine_nx_pes13_input_trace(unsigned int source, uint64_t raw, unsigned int value, unsigned int mode);
++
+ static BOOL wine_nx_send_keys(void)
+ {
+     static unsigned int delivered;
+@@ -617,6 +620,7 @@
+         input.ki.wScan = scan & 0xff;
+         if ((scan & 0xff00) == 0xe000) input.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
+         NtUserSendHardwareInput( 0, 0, &input, 0 );
++        wine_nx_pes13_input_trace(2, held, input.ki.wVk | (input.ki.wScan << 16), input.ki.dwFlags);
+     }
+     nxdrv_trace( "[NXINPUT] keys held=%x changed=%x", held, changed, 0, 0 );
+     delivered = held;

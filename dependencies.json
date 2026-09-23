@@ -1,0 +1,30 @@
+{
+  "wine_nx": {
+    "repository": "https://github.com/danfromtico/wine-nx.git",
+    "commit": "1bc4e45163f0d2328cdfd35c7f471dd9821bb879",
+    "release": "test-build-2",
+    "release_archive_sha256": "7ab014186f7927c220b94374bd691fbf7127efd728d822e6bc97cc278e25470f"
+  },
+  "box64": {
+    "repository": "https://github.com/ptitSeb/box64.git",
+    "commit": "dae0917c47b4edd8956f314210417a20fd225c4b"
+  },
+  "mesa_switch": {
+    "repository": "https://github.com/danfromtico/mesa-switch.git",
+    "commit": "b297e230ef88c6c88df2561becf864f979f494a6",
+    "version": "26.2.2"
+  },
+  "dxvk": {
+    "version": "v3.1-17-g878473ba",
+    "d3d9_sha256": "4950c79dd762837e86eb3823aabf1512ec6f35da8dd3a743a247e20c94b7873e",
+    "source": "Wine-NX test-build-2 release payload"
+  },
+  "toolchain": {
+    "devkitA64_gcc": "16.1.0",
+    "libnx": "4.12.0",
+    "llvm_mingw": "20260505-ucrt-ubuntu-22.04-x86_64",
+    "rust": "1.93.1",
+    "llvm": "21",
+    "meson": "1.10.1"
+  }
+}
