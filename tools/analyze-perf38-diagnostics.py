@@ -1,4 +1,4 @@
-"""Summarize the same-NRO PERF38 diagnostic run and preserve its full hot blocks."""
+"""Summarize PERF38/PERF39 diagnostic runs and preserve their full hot blocks."""
 from pathlib import Path
 import argparse, hashlib, importlib.util, json
 
@@ -11,10 +11,12 @@ def load(name):
 cadence=load('analyze-perf29-result.py')
 capture=load('decode-perf17.py')
 
-def analyze(path):
+def analyze(path, build='perf38'):
     run=cadence.parse(path)
-    if run['build']!=['pes13-nx-0.2.0-perf38-region-fusion']:
-        raise ValueError('Expected one PERF38 NRO run; check the log build marker')
+    markers={'perf38':'pes13-nx-0.2.0-perf38-region-fusion',
+             'perf39':'pes13-nx-0.2.0-perf39-capture-repair'}
+    if run['build']!=[markers[build]]:
+        raise ValueError('Expected one '+build.upper()+' NRO run; check the log build marker')
     if not run['sampler'] or run['sampler'][0]=='off':
         raise ValueError('The submitted run has CPU sampler off; install diagnostics overlay')
     blocks=capture.extract(path.read_text(errors='replace'))
@@ -50,9 +52,10 @@ def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('log',type=Path)
     ap.add_argument('--output',type=Path)
+    ap.add_argument('--build',choices=('perf38','perf39'),default='perf38')
     args=ap.parse_args()
-    result=analyze(args.log)
-    target=args.output or p/'local/perf38/results'/result['log_sha256'][:12]/'diagnostics.json'
+    result=analyze(args.log,args.build)
+    target=args.output or p/'local'/args.build/'results'/result['log_sha256'][:12]/'diagnostics.json'
     target.parent.mkdir(parents=True,exist_ok=True)
     if target.exists():assert json.loads(target.read_text())==result
     else:target.write_text(json.dumps(result,indent=2)+'\n')
@@ -64,7 +67,7 @@ def main():
             file=capture_dir/f'slot-{slot}-{kind}.bin'
             if file.exists():assert file.read_bytes()==block[kind]
             else:file.write_bytes(block[kind])
-    print('PERF38 diagnostics:',len(result['intervals']),'intervals, blocks',result['hot_blocks'],
+    print(args.build.upper()+' diagnostics:',len(result['intervals']),'intervals, blocks',result['hot_blocks'],
           'output',target)
 
 if __name__=='__main__':main()
