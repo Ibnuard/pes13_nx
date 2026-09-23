@@ -4,6 +4,17 @@ PES 2013 PC on Nintendo Switch, using a custom PES13-NX Horizon runtime built
 from Wine-NX/Wine, Box64's ARM64 dynamic recompiler, and Direct3D 9 through
 DXVK + Mesa NVK. Upstream credits and licenses are listed in [THIRD_PARTY.md](THIRD_PARTY.md).
 
+The `experimental/fex-core` branch starts a [FEX port for Horizon](docs/FEX2-BRINGUP.md).
+The FEX1 JIT adapter probe passed on Switch. FEX2 now connects the ARM64 WOW64
+module to Wine, adds an exception bridge and supplies an original x86 test in
+a separate package. The compact-heap build has now
+[passed its complete x86 guest test on Switch](docs/FEX2-RESULT.md), including
+SSE, x87, executable-code invalidation and one worker's TLS isolation and exit.
+The native register/exception, heap, physical-counter and callback ABI
+preflights also pass. Concurrent fault handling and PES integration are the
+next gates; this smoke test does not measure game FPS. The game runtime still
+uses Box64.
+
 Hardware testing has reached matches at 1280x720 with XInput gamepad control.
 The experimental PERF27 runtime improves notification routing, while earlier
 changes specialize translation of measured PES CPU hotspots. Recent match

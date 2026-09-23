@@ -1,5 +1,10 @@
 # FEX experiment for PES13-NX
 
+Implementation has started on `experimental/fex-core`: see
+[FEX1 bring-up](FEX1-BRINGUP.md) for the compiled ARM64 modules, Horizon JIT
+adapter, host checks, standalone NRO probe, and remaining integration work.
+The notes below record the initial feasibility audit.
+
 This is a feasibility plan, not a performance result. The reference checkout
 is official FEX commit `e2f973fe931e6dc2ce523795e51ca1ac3ca85816`
 under ignored `local/fex-probe/upstream`. Do not bundle FEX into a release

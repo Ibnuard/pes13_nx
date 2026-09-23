@@ -40,7 +40,7 @@ def jpeg_dimensions(data):
     raise ValueError('Missing JPEG frame header')
 
 
-def inspect_nro(blob, expected_icon=None, *, expected_title='PES13-NX'):
+def inspect_nro(blob, expected_icon=None, *, expected_title='PES13-NX', expected_version=PACKAGE_VERSION):
     if len(blob) < 0x80 or blob[0x10:0x14] != b'NRO0':
         raise ValueError('Invalid NRO header')
     nro_size = struct.unpack_from('<I', blob, 0x18)[0]
@@ -80,7 +80,7 @@ def inspect_nro(blob, expected_icon=None, *, expected_title='PES13-NX'):
         return value.split(b'\0', 1)[0].decode('utf-8')
 
     title, author, display_version = string_at(0, 0x200), string_at(0x200, 0x100), string_at(0x3060, 16)
-    if title != expected_title or not author or display_version != PACKAGE_VERSION:
+    if title != expected_title or not author or display_version != expected_version:
         raise ValueError('Unexpected NACP title, author or package version')
     return {'nro_bytes': len(blob), 'executable_bytes': nro_size,
             'executable_sha256': hashlib.sha256(blob[:nro_size]).hexdigest(),
@@ -93,8 +93,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('nro', type=Path)
     parser.add_argument('--icon', type=Path)
+    parser.add_argument('--title', default='PES13-NX')
+    parser.add_argument('--version', default=PACKAGE_VERSION)
     args = parser.parse_args()
     try:
-        print(json.dumps(inspect_nro(args.nro.read_bytes(), args.icon.read_bytes() if args.icon else None), indent=2))
+        print(json.dumps(inspect_nro(args.nro.read_bytes(), args.icon.read_bytes() if args.icon else None,
+                                     expected_title=args.title, expected_version=args.version), indent=2))
     except ValueError as error:
         parser.exit(1, str(error) + '\n')
