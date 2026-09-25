@@ -22,12 +22,16 @@ from fex_counter import CounterModel
 class AbiModel(CounterModel):
     def __init__(self, path):
         self.host_calls = []
-        self.results = {'allocate': PARAM+0x6000, 'release': 1, 'flush': 1}
+        self.results = {'allocate': PARAM+0x6000, 'release': 1, 'flush': 1,
+                        'scratch_allocate': PARAM+0x8000, 'scratch_release': 0}
         super().__init__(path, clobber_host_x18=True)
 
     def host_callbacks(self):
-        self.native_hooks = {STUBS+0xe100: 'allocate', STUBS+0xe200: 'release', STUBS+0xe300: 'flush'}
-        return STUBS+0xe100, STUBS+0xe200, self.alias, STUBS+0xe300, self.logger
+        self.native_hooks = {STUBS+0xe100: 'allocate', STUBS+0xe200: 'release',
+                             STUBS+0xe300: 'flush', STUBS+0xe400: 'scratch_allocate',
+                             STUBS+0xe500: 'scratch_release'}
+        return (STUBS+0xe100, STUBS+0xe200, self.alias, STUBS+0xe300,
+                self.logger, STUBS+0xe400, STUBS+0xe500)
 
     def host_return(self):
         # Native x0-x18 are volatile; x0 is the callback result. Do not let
@@ -128,6 +132,8 @@ def test_callbacks(dll, checks):
             ('PES13FexReleaseCode', [PARAM+0x6000], 1),
             ('PES13FexWriteAlias', [PARAM+0x6000, 123], PARAM+0x6000),
             ('PES13FexFlushCode', [PARAM+0x6000, 123], None),
+            ('PES13FexAllocateScratch', [16*1024*1024], PARAM+0x8000),
+            ('PES13FexReleaseScratch', [PARAM+0x8000], None),
         ):
             got = model.call(name, *args)
             assert not model.trapped
@@ -135,9 +141,21 @@ def test_callbacks(dll, checks):
             assert model.vm.reg_read(reg(18)) == teb, name
             assert [model.vm.reg_read(reg(i)) for i in range(19, 30)] == expected, name
             assert model.vm.reg_read(arm.UC_ARM64_REG_SP) == STACK+0x3f000, name
-    assert model.host_calls[-3:] == [('allocate', [0x8000, 0]), ('release', [PARAM+0x6000, 0]),
-                                    ('flush', [PARAM+0x6000, 123])]
-    checks.append('host installation and all five callbacks preserve per-call x18, x19-x29, stack, arguments and results')
+    assert model.host_calls[-5:] == [('allocate', [0x8000, 0]), ('release', [PARAM+0x6000, 0]),
+                                    ('flush', [PARAM+0x6000, 123]),
+                                    ('scratch_allocate', [16*1024*1024, 0]),
+                                    ('scratch_release', [PARAM+0x8000, 0])]
+    checks.append('host installation and all seven callbacks preserve per-call x18, x19-x29, stack, arguments and results')
+    if model.abi == 3:
+        model.vm.reg_write(reg(18), TEB)
+        pointer = model.call('PES13FexHeapAlloc', 123, 64)
+        assert pointer and pointer % 64 == 0 and model.vm.reg_read(reg(18)) == TEB
+        assert model.call('PES13FexHeapUsableSize', pointer) == 123
+        model.call('PES13FexHeapFree', pointer)
+        assert not model.heap_blocks and model.vm.reg_read(reg(18)) == TEB
+        model.profile = 2
+        assert model.call('PES13FexPerformanceProfile') == 2 and model.vm.reg_read(reg(18)) == TEB
+        checks.append('ABI 3 heap allocation/free/profile callbacks preserve x18 with hostile native clobbers')
     model.results['release'] = 0
     assert model.call('PES13FexReleaseCode', PARAM+0x6000) == 0 and not model.trapped
     for callback, function, args in (

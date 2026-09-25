@@ -8,10 +8,11 @@
 #include "horizon_host.h"
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <limits.h>
 
-_Static_assert(sizeof(struct pes13_fex_host) == 56, "FEX host ABI requires 64-bit pointers");
+_Static_assert(sizeof(struct pes13_fex_host) == 96, "FEX host ABI requires 64-bit pointers");
 _Static_assert(offsetof(struct pes13_fex_host, allocate_code) == 16, "FEX host ABI layout");
 
 #ifdef __SWITCH__
@@ -28,7 +29,9 @@ typedef pthread_mutex_t host_mutex;
 #define HOST_UNLOCK(m) pthread_mutex_unlock(m)
 #endif
 
-#define JIT_SLOTS 8
+/* Small fallback buffers can keep several code generations alive while FEX
+ * workers still hold references to older translated blocks. */
+#define JIT_SLOTS 64
 #define PAGE_BYTES 4096u
 
 struct code_mapping {
@@ -52,6 +55,90 @@ void pes13_fex_set_logger(void (*logger)(const char *)) { host_logger = logger; 
 static void host_log(const char *message) {
     if (host_logger) host_logger(message);
 }
+
+#ifdef __SWITCH__
+/* libnx's jitCreate forwards a NULL result from virtmemFindCodeMemory to the
+ * kernel, so an exhausted/fragmented alias range is reported only as an
+ * ambiguous InvalidMemoryRange. Keep its CodeMemory ABI and backing allocator,
+ * but distinguish each stage and never issue a mapping at address zero.
+ * Successful objects remain compatible with jitClose. */
+static Result create_code_memory(struct code_mapping *map, size_t size) {
+    Jit *jit = &map->jit;
+    const char *stage = "capabilities";
+    Result rc = MAKERESULT(Module_Libnx, LibnxError_JitUnavailable);
+    int owner_mapped = 0;
+    char message[240];
+    memset(jit, 0, sizeof(*jit));
+    jit->type = JitType_CodeMemory;
+    jit->size = size;
+    if (!envIsSyscallHinted(0x4b) || !envIsSyscallHinted(0x4c)) goto fail;
+
+    stage = "backing";
+    jit->src_addr = aligned_alloc(PAGE_BYTES, size);
+    if (!jit->src_addr) {
+        rc = MAKERESULT(Module_Libnx, LibnxError_OutOfMemory);
+        goto fail;
+    }
+    stage = "create";
+    rc = svcCreateCodeMemory(&jit->handle, jit->src_addr, size);
+    if (R_FAILED(rc)) goto fail;
+
+    virtmemLock();
+    stage = "find-rw";
+    jit->rw_addr = virtmemFindCodeMemory(size, PAGE_BYTES);
+    if (!jit->rw_addr) rc = MAKERESULT(Module_Kernel, KernelError_InvalidMemoryRange);
+    else {
+        stage = "map-rw";
+        rc = svcControlCodeMemory(jit->handle, CodeMapOperation_MapOwner,
+                                  jit->rw_addr, size, Perm_Rw);
+    }
+    virtmemUnlock();
+    if (R_FAILED(rc)) goto fail;
+    owner_mapped = 1;
+
+    virtmemLock();
+    stage = "find-rx";
+    jit->rx_addr = virtmemFindCodeMemory(size, PAGE_BYTES);
+    if (!jit->rx_addr) rc = MAKERESULT(Module_Kernel, KernelError_InvalidMemoryRange);
+    else {
+        stage = "map-rx";
+        rc = svcControlCodeMemory(jit->handle, CodeMapOperation_MapSlave,
+                                  jit->rx_addr, size, Perm_Rx);
+    }
+    virtmemUnlock();
+    if (R_SUCCEEDED(rc)) return rc;
+
+fail:
+    snprintf(message, sizeof(message),
+             "[FEX-JIT] allocation failed stage=%s size=%zu rc=%#x src=%p rw=%p rx=%p",
+             stage, size, rc, jit->src_addr, jit->rw_addr, jit->rx_addr);
+    host_log(message);
+    if (owner_mapped) {
+        Result cleanup = svcControlCodeMemory(jit->handle, CodeMapOperation_UnmapOwner,
+                                               jit->rw_addr, size, Perm_None);
+        if (R_FAILED(cleanup)) {
+            map->unusable = 1;
+            snprintf(message, sizeof(message),
+                     "[FEX-JIT] cleanup failed stage=unmap-rw rc=%#x; retaining backing and slot", cleanup);
+            host_log(message);
+            return rc;
+        }
+    }
+    if (jit->handle) {
+        Result cleanup = svcCloseHandle(jit->handle);
+        if (R_FAILED(cleanup)) {
+            map->unusable = 1;
+            snprintf(message, sizeof(message),
+                     "[FEX-JIT] cleanup failed stage=close-handle rc=%#x; retaining backing and slot", cleanup);
+            host_log(message);
+            return rc;
+        }
+    }
+    free(jit->src_addr);
+    memset(jit, 0, sizeof(*jit));
+    return rc;
+}
+#endif
 
 /* 1 = wholly inside, -1 = overlaps but crosses, 0 = disjoint. */
 static int range_overlap(uintptr_t address, uint64_t length, uintptr_t base, size_t size) {
@@ -107,13 +194,27 @@ static void *allocate_code(uint64_t requested) {
             map = &mappings[slot]; break;
         }
     }
-    if (!map) { HOST_UNLOCK(&allocation_lock); return NULL; }
-#ifdef __SWITCH__
-    Result rc = jitCreate(&map->jit, size);
-    if (R_FAILED(rc)) {
-        char message[128];
-        snprintf(message, sizeof(message), "[FEX-JIT] jitCreate size=%zu rc=%#x", size, rc);
+    if (!map) {
+        unsigned active = 0, quarantined = 0;
+        uint64_t live_bytes = 0;
+        char message[176];
+        for (unsigned i = 0; i < JIT_SLOTS; ++i) {
+            quarantined += !!mappings[i].unusable;
+            if (__atomic_load_n(&mappings[i].generation, __ATOMIC_RELAXED) & 1) {
+                ++active;
+                live_bytes += __atomic_load_n(&mappings[i].size, __ATOMIC_RELAXED);
+            }
+        }
+        HOST_UNLOCK(&allocation_lock);
+        snprintf(message, sizeof(message),
+                 "[FEX-JIT] no free slots requested=%zu capacity=%u active=%u quarantined=%u live_bytes=%llu",
+                 size, JIT_SLOTS, active, quarantined, (unsigned long long)live_bytes);
         host_log(message);
+        return NULL;
+    }
+#ifdef __SWITCH__
+    Result rc = create_code_memory(map, size);
+    if (R_FAILED(rc)) {
         HOST_UNLOCK(&allocation_lock);
         return NULL;
     }
@@ -212,10 +313,88 @@ static int release_code(void *address) {
     return 1;
 }
 
+static void *allocate_scratch(uint64_t requested) {
+    if (!requested || requested > SIZE_MAX - (PAGE_BYTES - 1)) return NULL;
+    size_t size = ((size_t)requested + PAGE_BYTES - 1) & ~(size_t)(PAGE_BYTES - 1);
+    void *result = aligned_alloc(PAGE_BYTES, size);
+    if (requested >= 8 * 1024 * 1024) {
+        static unsigned reported;
+        unsigned ticket = __atomic_fetch_add(&reported, 1, __ATOMIC_RELAXED);
+        if (ticket < 8 || !result) {
+            char message[160];
+            snprintf(message, sizeof(message), "[FEX3-SCRATCH] native size=%zu ptr=%p", size, result);
+            host_log(message);
+        }
+    }
+    return result;
+}
+
+static void release_scratch(void *address) { free(address); }
+
+static uint64_t heap_live, heap_peak, heap_allocations, heap_failures;
+static unsigned performance_profile;
+
+void pes13_fex_set_performance_profile(unsigned profile) {
+    performance_profile = profile <= 2 ? profile : 0; /* Before CPU/worker init. */
+}
+static unsigned get_performance_profile(void) { return performance_profile; }
+
+static void *allocate_heap(uint64_t requested, uint64_t alignment) {
+    /* FEX's private allocations have no guest page protection/alias needs.
+     * Use one native allocation instead of reserving rpmalloc spans and
+     * mapping a second low-4-GiB view for every committed page. */
+    const size_t header_size = sizeof(struct pes13_fex_heap_header);
+    if (!alignment) alignment = 16;
+    if (alignment & (alignment - 1)) return NULL;
+    if (alignment < 16) alignment = 16;
+    uint64_t size = requested ? requested : 1;
+    if (alignment > SIZE_MAX - header_size || size > SIZE_MAX - header_size - (alignment - 1))
+        return NULL;
+    void *raw = malloc((size_t)size + header_size + (size_t)alignment - 1);
+    if (!raw) {
+        uint64_t failures = __atomic_add_fetch(&heap_failures, 1, __ATOMIC_RELAXED);
+        if (failures <= 8) {
+            char message[128];
+            snprintf(message, sizeof(message), "[FEX3-NHEAP] allocation failed bytes=%llu align=%llu",
+                     (unsigned long long)size, (unsigned long long)alignment);
+            host_log(message);
+        }
+        return NULL;
+    }
+    uintptr_t address = ((uintptr_t)raw + header_size + alignment - 1) & ~(uintptr_t)(alignment - 1);
+    struct pes13_fex_heap_header *header = (struct pes13_fex_heap_header *)address - 1;
+    header->allocation = raw;
+    header->size = size;
+    uint64_t live = __atomic_add_fetch(&heap_live, size, __ATOMIC_RELAXED);
+    uint64_t peak = __atomic_load_n(&heap_peak, __ATOMIC_RELAXED);
+    while (live > peak && !__atomic_compare_exchange_n(&heap_peak, &peak, live, 1,
+                                                       __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {}
+    __atomic_add_fetch(&heap_allocations, 1, __ATOMIC_RELAXED);
+    return (void *)address;
+}
+
+static void release_heap(void *address) {
+    if (!address) return;
+    struct pes13_fex_heap_header *header = (struct pes13_fex_heap_header *)address - 1;
+    __atomic_sub_fetch(&heap_live, header->size, __ATOMIC_RELAXED);
+    free(header->allocation);
+}
+
+void pes13_fex_report_heap(void) {
+    char message[192];
+    snprintf(message, sizeof(message), "[FEX3-NHEAP] live_kb=%llu peak_kb=%llu allocs=%llu failures=%llu",
+             (unsigned long long)(__atomic_load_n(&heap_live, __ATOMIC_RELAXED) / 1024),
+             (unsigned long long)(__atomic_load_n(&heap_peak, __ATOMIC_RELAXED) / 1024),
+             (unsigned long long)__atomic_load_n(&heap_allocations, __ATOMIC_RELAXED),
+             (unsigned long long)__atomic_load_n(&heap_failures, __ATOMIC_RELAXED));
+    host_log(message);
+}
+
 const struct pes13_fex_host *pes13_fex_native_host(void) {
     static const struct pes13_fex_host host = {
         PES13_FEX_HOST_MAGIC, PES13_FEX_HOST_ABI, sizeof(struct pes13_fex_host), 0,
-        allocate_code, release_code, write_alias, flush_code, host_log
+        allocate_code, release_code, write_alias, flush_code, host_log,
+        allocate_scratch, release_scratch, allocate_heap, release_heap, get_performance_profile
     };
     return &host;
 }

@@ -24,7 +24,8 @@ def main():
     base, address, frame = 0x1000000, 0x20000000, 0x21000000
     start = base + symbols['__libnx_exception_entry']
     trap = base + symbols['pes13_fex_restore_context']
-    fallback = base + symbols['pes13_libnx_exception_entry']
+    fallback = base + symbols['pes13_fex_exception_enter' if 'pes13_fex_exception_enter' in symbols
+                               else 'pes13_libnx_exception_entry']
 
     def create():
         vm = Uc(UC_ARCH_ARM64, UC_MODE_ARM)
@@ -73,7 +74,7 @@ def main():
             machine.emu_stop()
 
         vm.hook_add(UC_HOOK_INTR, svc)
-        vm.emu_start(start, 0, count=300)
+        vm.emu_start(start, 0, count=1500)  # FEX3 also scans the bounded exception-slot pool.
         assert stopped == [True]
     for pointer in (0, frame):
         vm = create()

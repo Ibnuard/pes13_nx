@@ -58,7 +58,9 @@ class CounterModel(Model):
         name = self.hooks.get(pc)
         a = [vm.reg_read(reg(i)) for i in range(8)] if name else []
         result = 0
-        if name == 'RtlUnicodeToMultiByteSize':
+        if name == 'isspace':
+            result = int(a[0] in (9, 10, 11, 12, 13, 32))
+        elif name == 'RtlUnicodeToMultiByteSize':
             encoded = bytes(vm.mem_read(a[1], a[2])).decode('utf-16-le').encode()
             vm.mem_write(a[0], struct.pack('<I', len(encoded)))
         elif name == 'RtlUnicodeToMultiByteN':

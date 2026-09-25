@@ -35,6 +35,13 @@ extern "C" int pes13_fex_jit_test(void) {
     CHECK(PES13FexSetHost(host));
     CHECK(!PES13FexSetHost(host));
     CHECK(PES13FexHostReady());
+    CHECK(!host->allocate_scratch(0));
+    auto *scratch = static_cast<uint8_t *>(host->allocate_scratch(16 * 1024 * 1024));
+    CHECK(scratch && !(reinterpret_cast<uintptr_t>(scratch) & 4095));
+    scratch[0] = 0x5a;
+    scratch[16 * 1024 * 1024 - 1] = 0xa5;
+    CHECK(scratch[0] == 0x5a && scratch[16 * 1024 * 1024 - 1] == 0xa5);
+    host->release_scratch(scratch);
     CHECK(!host->allocate_code(0));
     CHECK(!host->allocate_code(UINT64_MAX));
 

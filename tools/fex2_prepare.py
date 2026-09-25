@@ -6,8 +6,10 @@ import shutil
 import os
 
 
-def prepare(root, project):
-    work = root / 'fex-experiment/wine2'
+def prepare(root, project, version='wine2'):
+    if version not in ('wine2', 'wine3'):
+        raise ValueError('Unsupported FEX Wine snapshot')
+    work = root / 'fex-experiment' / version
     work.mkdir(parents=True, exist_ok=True)
     for kind, origin in (('native-source', root / 'runtime-perf11-source'),
                          ('pe-source', root / 'source')):

@@ -104,7 +104,9 @@ def main():
             name: hashlib.sha256((project / name).read_bytes()).hexdigest()
             for name in ['src/fex/horizon_host.h', 'src/fex/module_host.cpp',
                          'src/fex/module_host_call.S',
-                         'src/fex/module_memory.cpp', 'src/fex/horizon_counter.h',
+                         'src/fex/module_memory.cpp', 'src/fex/module_heap.cpp', 'src/fex/module_profile.cpp',
+                         'src/fex/module_smc.cpp', 'src/fex/module_exception.cpp',
+                         'src/fex/horizon_smc.h', 'src/fex/horizon_stall.h', 'src/fex/horizon_counter.h', 'src/fex/horizon_heap.h',
                          'src/fex/module_counter.cpp', 'tools/fex_horizon_patches.py']}
     (output / 'build.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report, indent=2))

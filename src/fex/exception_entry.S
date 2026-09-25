@@ -6,17 +6,53 @@
  * Unlike a BR through x9/x17, this does not sacrifice a live JIT register.
  * Layouts are checked against Wine/libnx headers in wine_bridge.c.
  */
+#ifdef PES13_FEX_ISOLATED_EXCEPTIONS
+#include "exception_slots.h"
+#define ordinary_entry pes13_fex_exception_enter
+#else
+#define ordinary_entry pes13_libnx_exception_entry
+#endif
 .text
 .balign 4
 .global __libnx_exception_entry
 .type __libnx_exception_entry, %function
 __libnx_exception_entry:
-    cbz x1, pes13_libnx_exception_entry
+    cbz x1, ordinary_entry
     ldr x2, [x1, #88]
     adrp x3, pes13_fex_restore_context
     add x3, x3, :lo12:pes13_fex_restore_context
     cmp x2, x3
-    b.ne pes13_libnx_exception_entry
+    b.ne ordinary_entry
+#ifdef PES13_FEX_ISOLATED_EXCEPTIONS
+    /* Identify the stack we are leaving BEFORE replacing the kernel SP.
+     * Hold the slot until every context load completes: the CONTEXT itself
+     * can reside on this stack. x0-x8 will be restored by the kernel. */
+    mov x6, xzr
+    ldr x8, [x1, #80]
+    adrp x3, pes13_fex_exception_slots
+    add x3, x3, :lo12:pes13_fex_exception_slots
+    mov x5, #(PES13_FEX_EXCEPTION_STRIDE >> 12)
+    lsl x5, x5, #12
+    mov w7, #PES13_FEX_EXCEPTION_COUNT
+1:  add x4, x3, #PES13_FEX_EXCEPTION_HEADER
+    cmp x8, x4
+    b.lo 2f
+    add x4, x3, x5
+    cmp x8, x4
+    b.hi 2f
+    ldar x4, [x3]
+    mrs x7, tpidrro_el0
+    cbnz x7, 5f
+    mov x7, #1
+5:  cmp x4, x7
+    b.ne 3f
+    mov x6, x3
+    b 3f
+2:  add x3, x3, x5
+    subs w7, w7, #1
+    b.ne 1b
+3:
+#endif
     /* Kernel frame's saved x0 is the CONTEXT pointer. x0-x8 are restored
      * from that frame by the kernel, so they are safe scratch registers. */
     ldr x2, [x1]
@@ -67,6 +103,11 @@ __libnx_exception_entry:
     ldp x25, x26, [x2, #208]
     ldp x27, x28, [x2, #224]
     ldr x29, [x2, #240]
+#ifdef PES13_FEX_ISOLATED_EXCEPTIONS
+    cbz x6, 4f
+    stlr xzr, [x6]
+4:
+#endif
     mov w0, wzr
     svc #0x28
     b .

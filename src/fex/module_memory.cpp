@@ -5,6 +5,7 @@
 #include <windows.h>
 #include <rpmalloc/rpmalloc.h>
 #include "horizon_host.h"
+#include "horizon_heap.h"
 
 namespace {
 // No printf, malloc, or C++ runtime: an allocation failure may precede CRT init.
@@ -39,6 +40,33 @@ extern "C" void PES13FexLogAllocationFailure(const char *api, uint64_t address, 
     out = Hex(Text(out, " status="), status);
     *out = 0;
     PES13FexLog(message);
+}
+
+extern "C" int PES13FexCommitTrackedMemory(uint64_t fault, uint64_t range_start, uint64_t range_end) {
+    constexpr uint64_t page = 4096, chunk = 64 * 1024;
+    // Do not commit from AllocationBase: Wine can return the whole untouched
+    // reservation as one region. Only FEX's owned, aligned intervals belong
+    // here; a failed null reservation must never claim guest address space.
+    if (!range_start || range_end <= range_start || ((range_start | range_end) & (page-1)) ||
+        fault < range_start || fault >= range_end) return 0;
+    const uint64_t address = fault & ~(page-1);
+    MEMORY_BASIC_INFORMATION info {};
+    if (VirtualQuery(reinterpret_cast<void *>(address), &info, sizeof(info)) != sizeof(info)) return 0;
+    const uint64_t region = reinterpret_cast<uintptr_t>(info.BaseAddress);
+    if (region > address || info.RegionSize > UINT64_MAX - region ||
+        region + info.RegionSize <= address) return 0;
+    // Another thread can satisfy this fault before our query. Only ordinary
+    // writable data pages are retryable; never swallow a guest protection fault.
+    if (info.State == MEM_COMMIT)
+        return !(info.Protect & (PAGE_GUARD | PAGE_NOACCESS)) &&
+               (info.Protect & (PAGE_READWRITE | PAGE_WRITECOPY));
+    if (info.State != MEM_RESERVE) return 0;
+    uint64_t size = range_end - address;
+    if (size > region + info.RegionSize - address) size = region + info.RegionSize - address;
+    if (size > chunk) size = chunk;
+    if (!size || (size & (page-1))) return 0;
+    return VirtualAlloc(reinterpret_cast<void *>(address), size, MEM_COMMIT, PAGE_READWRITE) ==
+           reinterpret_cast<void *>(address);
 }
 
 extern "C" void PES13FexAllocationPreflight(void) {
@@ -82,19 +110,38 @@ extern "C" void PES13FexHeapFailure(const char *operation, uint64_t size) {
     Stop(message);
 }
 
+extern "C" void *PES13FexReserveHeap(uint64_t size, uint64_t alignment, uint32_t flags) {
+    // rpmalloc normally reserves size+alignment and keeps the padding until
+    // release. Our 32-bit prefix cannot afford that extra span of padding.
+    // Let Wine select an aligned address while holding its VM lock. Never
+    // release/re-reserve a candidate: another thread could claim the gap.
+    if (!alignment)
+        return VirtualAlloc(nullptr, size, flags, PAGE_READWRITE);
+    MEM_ADDRESS_REQUIREMENTS requirements {};
+    requirements.Alignment = alignment;
+    MEM_EXTENDED_PARAMETER parameter {};
+    parameter.Type = MemExtendedParameterAddressRequirements;
+    parameter.Pointer = &requirements;
+    return VirtualAlloc2(nullptr, nullptr, size, flags, PAGE_READWRITE, &parameter, 1);
+}
+
 extern "C" void PES13FexHeapPreflight(void) {
-    PES13FexLog("[FEX2-HEAP] v5 compact 32 MiB spans; checking small/medium/large blocks");
-    constexpr size_t sizes[] = {24, 8192, 1024 * 1024};
-    void *blocks[3] {};
-    for (size_t i = 0; i < 3; ++i) {
-        blocks[i] = rpmalloc(sizes[i]);
+    PES13FexLog("[FEX3-HEAP] v8 native private CRT/container heap; no guest spans");
+    constexpr size_t sizes[] = {24, 8192, 1024 * 1024,
+                               PES13_FEX_HEAP_LARGE_BLOCK_LIMIT,
+                               PES13_FEX_HEAP_LARGE_BLOCK_LIMIT + 1};
+    void *blocks[5] {};
+    for (size_t i = 0; i < 5; ++i) {
+        blocks[i] = PES13FexHeapAlloc(sizes[i], i == 4 ? 65536 : 16);
         if (!blocks[i]) PES13FexHeapFailure("allocation", sizes[i]);
+        if (reinterpret_cast<uintptr_t>(blocks[i]) & (i == 4 ? 65535 : 15))
+            Stop("[FEX3-HEAP] STOP native heap alignment mismatch");
         auto *bytes = static_cast<volatile unsigned char *>(blocks[i]);
         bytes[0] = 0x5a;
         bytes[sizes[i] - 1] = 0xa5;
         if (bytes[0] != 0x5a || bytes[sizes[i] - 1] != 0xa5)
             Stop("[FEX2-HEAP] STOP block readback failed");
     }
-    for (void *block : blocks) rpfree(block);
-    PES13FexLog("[FEX2-HEAP] PASS small/medium/large allocation, write and free");
+    for (void *block : blocks) PES13FexHeapFree(block);
+    PES13FexLog("[FEX3-HEAP] PASS native small/large/aligned allocation, write and free");
 }

@@ -67,17 +67,42 @@ class Model:
                 self.writeq(item.address, address)
         self.logger = STUBS + 0xf000
         self.alias = STUBS + 0xe000
+        self.scratch_alloc = STUBS + 0xd200
+        self.scratch_free = STUBS + 0xd204
+        self.heap_alloc_callback = STUBS + 0xd208
+        self.heap_free_callback = STUBS + 0xd20c
+        self.profile_read = STUBS + 0xd210
+        self.profile = 0
+        self.heap_blocks = {}
         self.stop = STUBS + 0xff00
         self.logs, self.calls, self.regions = [], [], {}
+        self.native_regions = {}
+        self.native_next = 0x90000000
         self.next_base = 0x50000000
         self.next_tls = 1
         self.fail_allocations = False
         self.trapped = False
         self.vm.hook_add(UC_HOOK_CODE, self.hook)
         self.vm.hook_add(UC_HOOK_INTR, self.interrupt)
-        host = struct.pack('<4I5Q', 0x46455848, 1, 56, 0, *self.host_callbacks())
+        callbacks = self.host_callbacks()
+        if len(callbacks) == 5:
+            callbacks += (self.scratch_alloc, self.scratch_free)
+        assert len(callbacks) == 7
+        host = struct.pack('<4I10Q', 0x46455848, 3, 96, 0, *callbacks,
+                           self.heap_alloc_callback, self.heap_free_callback, self.profile_read)
         self.vm.mem_write(PARAM, host)
-        assert self.call('PES13FexSetHost', PARAM) == 1
+        if self.call('PES13FexSetHost', PARAM) == 1:
+            self.abi = 3
+        else:
+            self.vm.mem_write(PARAM, struct.pack('<4I7Q', 0x46455848, 2, 72, 0, *callbacks))
+            if self.call('PES13FexSetHost', PARAM) == 1:
+                self.abi = 2
+            else:
+                # Historical controls used by before/after tests have ABI 1.
+                self.abi = 1
+                self.vm.mem_write(PARAM, struct.pack('<4I5Q', 0x46455848, 1, 56, 0,
+                                                     *callbacks[:5]))
+                assert self.call('PES13FexSetHost', PARAM) == 1
 
     def host_callbacks(self):
         return self.stop, self.stop, self.alias, self.stop, self.logger
@@ -159,6 +184,53 @@ class Model:
         return 0
 
     def hook(self, vm, pc, size, user):
+        if pc == self.profile_read:
+            vm.reg_write(reg(0), self.profile)
+            self.host_return()
+            return
+        if pc == self.heap_alloc_callback:
+            length, alignment = vm.reg_read(reg(0)), vm.reg_read(reg(1))
+            alignment = max(alignment or 16, 16)
+            length = max(length, 1)
+            if self.fail_allocations or length > 0x10000000 or alignment > 0x10000000 or alignment & (alignment-1):
+                vm.reg_write(reg(0), 0)
+            else:
+                base = (self.native_next+4095) & -4096
+                address = (base+16+alignment-1) & -alignment
+                total = (address-base+length+4095) & -4096
+                self.native_next = base+total+4096
+                vm.mem_map(base, total)
+                vm.mem_write(address-16, struct.pack('<QQ', base, length))
+                self.heap_blocks[address] = (base, total)
+                vm.reg_write(reg(0), address)
+            self.host_return()
+            return
+        if pc == self.heap_free_callback:
+            address = vm.reg_read(reg(0))
+            if address:
+                base, total = self.heap_blocks.pop(address)
+                vm.mem_unmap(base, total)
+            self.host_return()
+            return
+        if pc == self.scratch_alloc:
+            length = vm.reg_read(reg(0))
+            if self.fail_allocations or not length or length > 0x10000000:
+                vm.reg_write(reg(0), 0)
+            else:
+                length = (length + 4095) & ~4095
+                address = (self.native_next + 4095) & ~4095
+                self.native_next = address + length + 4096
+                vm.mem_map(address, length)
+                self.native_regions[address] = length
+                vm.reg_write(reg(0), address)
+            self.host_return()
+            return
+        if pc == self.scratch_free:
+            address = vm.reg_read(reg(0))
+            if address:
+                vm.mem_unmap(address, self.native_regions.pop(address))
+            self.host_return()
+            return
         if pc == self.alias:
             # Identity alias for ordinary emitter test buffers. Dual-mapping
             # CodeMemory itself is covered by the separate FEX1 JIT tests.
@@ -177,7 +249,17 @@ class Model:
         a = [vm.reg_read(reg(i)) for i in range(8)]
         self.calls.append((name, a))
         result = 0
-        if name == 'NtAllocateVirtualMemory':
+        if name in ('memcpy', 'memmove', 'memset', 'memcmp'):
+            if name == 'memset':
+                vm.mem_write(a[0], bytes([a[1]&255])*a[2])
+                result = a[0]
+            elif name == 'memcmp':
+                left, right = bytes(vm.mem_read(a[0], a[2])), bytes(vm.mem_read(a[1], a[2]))
+                result = (left > right) - (left < right)
+            else:
+                vm.mem_write(a[0], bytes(vm.mem_read(a[1], a[2])))
+                result = a[0]
+        elif name == 'NtAllocateVirtualMemory':
             result = self.allocate(a[1], a[3], a[4])
         elif name == 'NtAllocateVirtualMemoryEx':
             result = self.allocate(a[1], a[2], a[3], a[5], a[6])
@@ -201,7 +283,7 @@ class Model:
         elif name in ('RtlAcquirePebLock', 'RtlReleasePebLock', 'RtlClearBits', 'NtSetInformationThread'):
             pass
         elif name == 'RtlNtStatusToDosError':
-            result = {INVALID: 87, NO_MEMORY: 8}[a[0] & 0xffffffff]
+            result = {INVALID: 87, NO_MEMORY: 8, 0xc0000022: 5}[a[0] & 0xffffffff]
         else:
             raise AssertionError(f'Unmodelled import {name}: {a}')
         vm.reg_write(reg(0), result)
@@ -256,7 +338,8 @@ def main():
     checks.append('out-of-memory returns NULL/LastError and preflight stops explicitly')
 
     heap = Model(args.dll)
-    assert heap.call('rpmalloc_initialize', 0) == 0 and not heap.trapped
+    if heap.abi < 3:
+        assert heap.call('rpmalloc_initialize', 0) == 0 and not heap.trapped
     for size in (24, 4096, 1024*1024):
         pointer = heap.call('malloc', size)
         assert pointer and not heap.trapped
@@ -264,9 +347,9 @@ def main():
         heap.vm.mem_write(pointer+size-4, b'last')
         assert heap.vm.mem_read(pointer, 5) == b'first'
         heap.call('free', pointer)
-    heap.call('rpmalloc_thread_finalize')
+    if heap.abi < 3: heap.call('rpmalloc_thread_finalize')
     assert not heap.trapped
-    checks.append('actual linked rpmalloc initializes, allocates/frees 24 B/4 KB/1 MB and finalizes thread')
+    checks.append('actual linked CRT allocates/frees 24 B/4 KB/1 MB through the selected heap backend')
     report = {'passed': True, 'dll_sha256': hashlib.sha256(args.dll.read_bytes()).hexdigest(),
               'checks': checks, 'scope': 'ARM64 DLL instructions with mocked NT APIs; Switch run still required'}
     if args.before:

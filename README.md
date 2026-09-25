@@ -11,9 +11,92 @@ a separate package. The compact-heap build has now
 [passed its complete x86 guest test on Switch](docs/FEX2-RESULT.md), including
 SSE, x87, executable-code invalidation and one worker's TLS isolation and exit.
 The native register/exception, heap, physical-counter and callback ABI
-preflights also pass. Concurrent fault handling and PES integration are the
-next gates; this smoke test does not measure game FPS. The game runtime still
-uses Box64.
+preflights also pass. [FEX3](docs/FEX3-INTEGRATION.md) adds isolated concurrent
+fault stacks, Wine guest exception dispatch and one NRO with stress-test/PES
+modes in `switch/pes13-fex/`. Its first device stress test failed at automatic
+code modification (worker result `0x10`); subsequent fixes are documented below.
+The memory fix reduced per-thread lookup reservations from 152 to 25 MiB and
+commits pages in bounded chunks. Its device run has no logged allocation
+failures: all four workers pass the first automatic code change, then time out
+at their first guest exception. Native concurrent faults pass. The subsequent
+trace reaches ARM64 PE exception dispatch with zero x86 handler entries.
+Local binary tests reproduce an unwind loop caused by PE Wine's missing
+bootstrap module index. The FEX3 unwind-fix shares the live native/PE index,
+uses Wine's tree operations on both sides and checks unwind metadata at boot.
+The unwind-fix device run now passes one complete worker wave, including
+64 automatic code updates and 64 handled guest faults. It then fails a 64 MiB
+reservation while starting the next wave. The new reserve-fix NRO repairs
+conflict recovery and supplies the self-thread object query that FEX needs
+to release its per-thread state. The reserve-fix now [passes the complete
+four-wave stress test on Switch](docs/FEX3-RESULT.md): 16 workers, 256 automatic
+code updates, 256 handled guest faults, lifecycle PASS and process exit code 0.
+The first subsequent PES run fails a 64 MiB heap reservation. The aligned-heap
+fix removes padding and gets PES further: a Vulkan surface and compiler
+threads initialize, then another 32 MiB heap reservation fails and parks a
+thread, leaving a black screen. The subsequent `pes13-fex3-compact-heap` build
+uses 8 MiB spans with smaller allocator pages; blocks above 2 MiB use direct
+mappings. Local binary tests cover fragmented space, 350 allocation boundaries,
+realloc, thread-heap reuse and exceptions. Its PES device run reaches many
+game workers, then another 8 MiB reservation fails. The
+`pes13-fex3-compact-cache` candidate removes the unused L2 reservation when
+L2 is disabled (the pinned default), reducing lookup address space from
+25 to 1 MiB per thread. L1 capacity/policy and guest addressing stay intact.
+Local tests cover 32 live caches, lookup targets, invalidation and L1 resizing.
+The next two device runs confirm that fix is active but still exhaust guest
+address space. One faults in the IR emitter after a failed 16 MiB scratch
+allocation; the other stops on an 8 MiB heap reservation. The
+`pes13-fex3-scratch-reuse` build reuses disowned compiler buffers before
+growing their shared pool, retaining their full capacity and atomic ownership
+checks. Previously, idle buffers could stay pinned for five seconds. It also
+rejects failed allocations before publishing a null buffer. The user reports
+complete stress PASS and a first PES loading frame, followed by an intermittent
+startup stall. The `pes13-fex3-fd-routing` NRO fixes a locally reproduced
+native server race that could exchange different threads' startup pipes.
+It consumes transferred descriptors by their protocol identity and wakes all
+keyed waiters. The user now reports frames in both attempts. The supplied log
+reaches successful Vulkan presents, then stops when the shared executable JIT
+buffer grows from 32 to 64 MiB: Horizon returns `0xdc01` (invalid memory range).
+The JIT-growth candidate retries smaller fresh code buffers and records the
+actual capacity, preserving references to older live code. The subsequent
+startup-probe log confirms DXVK presents, then native RW alias searches fail
+for 64, 32 and 16 MiB buffers; FEX stops allocating and parks that thread.
+The `pes13-fex3-small-cache` build tries down to 2 MiB and gives the native
+handle table 64 slots. Its PES run avoids the terminal allocation failure,
+but repeated 8/4 MiB code-cache rollovers coincide with a near-stall in
+Vulkan presents. The early 64 MiB cache, native compiler scratch and rejected-
+suspend backoff subsequently allow the intro to appear, according to the user.
+The native L1 update removes that `FindBlock` failure, but the latest device
+log still shows a choppy intro followed by 4/2 MiB executable-cache allocation
+failures and parked threads. The early 128 MiB code-buffer update now reaches
+the PES menu on Switch. Loading team selection then exhausts guest address
+space, Vulkan allocations fail, and the main thread exits with `c0000005`.
+The preceding FEX3 candidate reduces the per-thread
+CALL/RET prediction cache from 4 MiB to 256 KiB, retaining its guard recovery
+and the successful 128 MiB initial code buffer. It saves 127.5 MiB across 34
+live prediction stacks in the linked ARM64 allocation model. Local lifecycle,
+guard recovery and exception tests pass; this candidate still needs a Switch
+test. The subsequent alias-perf control and same-core scheduler tests still
+hang at team selection. The latest log records guest-VA exhaustion, Vulkan
+allocation failures and a `c0000005` exit. [The native-heap candidate](docs/FEX3-FAST-NATIVE.md)
+moves FEX-private CRT/container allocations to native memory and adds explicit
+Fast (x87 64-bit) and Fastest (also relax scalar TSO) profiles. Both require
+the paired ABI-3 NRO/DLL. Device testing confirms the memory improvement but
+both presets remain too slow at team selection. [The final FEX attempt](docs/FEX3-FINAL-3D.md)
+removes an injected suspend delay, fixes stale writable-code tracking, batches
+checks in static game/renderer text, and reserves a spare JIT generation early.
+It requires the matched NRO, FEX DLL and ntdll.dll. The tester now reports much
+faster 2D but a team-selection hang. [The team-sync candidate](docs/FEX3-TEAM-SYNC.md)
+restores scalar/SIMD/string ordering in Fast and captures bounded thread evidence
+only when presentation stops. Its device run freezes in the intro; new counters
+identify hundreds of thousands of rejected self-suspend requests. The
+[self-suspend candidate](docs/FEX3-SELF-SUSPEND.md) implements a blocking self
+request in the native server, preserving suspend counts until resume, and
+restores the earlier Fastest configuration. Local concurrent and linked ARM64
+tests pass. The tester now reports reaching a match at visually around 30 FPS,
+with a few remaining bugs. This is the [current checkpoint](docs/FEX3-CHECKPOINT.md);
+stable measured 30 FPS and a controlled comparison with Box64 remain unverified.
+The established game runtime still uses
+Box64 on the main branch; this branch retains the working FEX checkpoint.
 
 Hardware testing has reached matches at 1280x720 with XInput gamepad control.
 The experimental PERF27 runtime improves notification routing, while earlier

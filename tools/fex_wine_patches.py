@@ -1,10 +1,12 @@
-"""FEX2-only Wine bootstrap and exception integration, with checked snapshots."""
+"""Isolated FEX2/FEX3 Wine bootstrap and exception integration patches."""
 from pathlib import Path
 import hashlib
 import json
 
 
-def apply(work, project):
+def apply(work, project, integration=False, samecore_yield=False):
+    if samecore_yield and not integration:
+        raise ValueError('same-core yield requires the isolated FEX3 runtime')
     report = {}
     for kind in ('native-source', 'pe-source'):
         source = work / kind
@@ -37,11 +39,59 @@ def apply(work, project):
                 '            return L"winebox64.dll";\n'
                 '        if (native_machine == IMAGE_FILE_MACHINE_ARM64 &&\n'
                 '            __wine_switch_cpu_backend == 0x46455832u) return L"libwow64fex.dll";')
+        if integration and kind == 'pe-source':
+            name = 'dlls/ntdll/signal_arm64.c'
+            replace(name, '    return pWow64SuspendLocalThread( thread, count );',
+                    '    return pes13_fex_suspend_local_thread( thread, count );')
+            replace(name, '/***********************************************************************\n *              RtlWow64SuspendThread (NTDLL.@)',
+                    (project / 'src/runtime/fex_suspend_backoff.h').read_text() +
+                    '\n/***********************************************************************\n *              RtlWow64SuspendThread (NTDLL.@)')
+            name = 'dlls/ntdll/loader.c'
+            replace(name, 'static RTL_RB_TREE base_address_index_tree;', r'''
+static RTL_RB_TREE base_address_index_tree_storage;
+/* The Horizon bootstrap and this PE loader own the same LDR entries. Share
+ * the tree itself: copying its root once becomes stale after an insertion,
+ * and inserting the same intrusive nodes into a second tree corrupts both. */
+RTL_RB_TREE *wine_nx_pe_module_index = &base_address_index_tree_storage;
+#define base_address_index_tree (*wine_nx_pe_module_index)
+''')
+            replace(name, '/******************************************************************\n *              LdrEnumerateLoadedModules (NTDLL.@)', r'''
+/* Bounded bootstrap check, called through the native-to-PE ABI trampoline.
+ * Check the real PE lookup and unwind table before any x86 execution. */
+#ifdef __aarch64__
+struct wine_nx_module_probe { void *pc, *base; };
+NTSTATUS WINAPI wine_nx_validate_module_index(const struct wine_nx_module_probe *probes, ULONG count)
+{
+    ULONG i;
+    if (!probes || count != 3) return STATUS_INVALID_PARAMETER;
+    for (i = 0; i < count; ++i)
+    {
+        LDR_DATA_TABLE_ENTRY *module;
+        ULONG_PTR base = 0;
+        if (!probes[i].pc || LdrFindEntryForAddress(probes[i].pc, &module) ||
+            module->DllBase != probes[i].base) return STATUS_DLL_NOT_FOUND;
+        if (!RtlLookupFunctionEntry((ULONG_PTR)probes[i].pc, &base, NULL) ||
+            base != (ULONG_PTR)probes[i].base) return STATUS_BAD_FUNCTION_TABLE;
+    }
+    return STATUS_SUCCESS;
+}
+#endif
+
+/******************************************************************
+ *              LdrEnumerateLoadedModules (NTDLL.@)''')
+            name = 'dlls/ntdll/ntdll.spec'
+            replace(name, '@ extern -private wine_nx_pe_hash_table',
+                    '@ extern -private wine_nx_pe_hash_table\n'
+                    '@ extern -private wine_nx_pe_module_index\n'
+                    '@ stdcall -private -arch=arm64 wine_nx_validate_module_index(ptr long)')
         if kind == 'native-source':
             # Runtime path isolation includes Wine's Unix filesystem/server paths.
+            integration_paths = ([*(source / 'dlls/ntdll').glob('*.c'),
+                                  *(source / 'dlls/ntdll/unix').glob('*.h')]
+                                 if integration else [])
             for path in [*(source / 'wine-nx-probe/source').glob('*.c'),
                          *(source / 'wine-nx-probe/source').glob('*.h'),
-                         *(source / 'dlls/ntdll/unix').glob('*.c')]:
+                         *(source / 'dlls/ntdll/unix').glob('*.c'), *integration_paths]:
                 name = str(path.relative_to(source))
                 if name not in saved:
                     continue
@@ -153,9 +203,10 @@ void horizon_continue_context(const CONTEXT *context)
                     '    wine_nx_runtime_verbose = 0;')
             replace(name, 'if (!log_flusher_running || log_line_is_urgent( line ))',
                     'if (!log_flusher_running || !strncmp(line, "[FEX", 4) || log_line_is_urgent( line ))')
-            start = read(name).index('    {\n        extern int wine_nx_pes13_preload_report(void);')
-            end = read(name).index('    log_line( "[SDCACHE]', start)
-            patched[name] = patched[name][:start] + patched[name][end:]
+            if not integration:
+                start = read(name).index('    {\n        extern int wine_nx_pes13_preload_report(void);')
+                end = read(name).index('    log_line( "[SDCACHE]', start)
+                patched[name] = patched[name][:start] + patched[name][end:]
             # No display/game/controller activity required for a console guest.
             replace(name, '    wine_nx_pes13_registry_enabled =\n'
                     '        !strcmp(target, "sdmc:/switch/pes13-fex2/drive_c/PES13/pes2013.exe") ||\n'
@@ -173,6 +224,243 @@ void horizon_continue_context(const CONTEXT *context)
                     ' "${PES13_FEX_DIR}/horizon_jit.c" "${PES13_FEX_DIR}/wine_bridge.c"\n'
                     ' "${PES13_FEX_DIR}/exception_entry.S" "${PES13_FEX_DIR}/context_test.S"\n'
                     ' "${PES13_LIBNX_EXCEPTION_OBJECT}")')
+
+            if integration:
+                from fex_reservation_patches import apply as apply_reservation_patches
+                from fex_thread_patches import apply as apply_thread_patches
+                from fex_fd_patches import apply as apply_fd_patches
+                apply_reservation_patches(replace)
+                apply_thread_patches(read, replace)
+                apply_fd_patches(read, replace)
+                # PE and native now mutate a shared module index. The native
+                # bootstrap's old unbalanced insert / no-op remove shims cannot
+                # supply the red-black invariants expected by PE Wine. Reuse
+                # this snapshot's Wine implementation, including its helpers.
+                rtl = read('dlls/ntdll/rtl.c')
+                start = rtl.index('static RTL_BALANCED_NODE *rtl_node_parent(')
+                end = rtl.index('/***********************************************************************\n *           RtlInitializeGenericTableAvl', start)
+                name = 'wine-nx-probe/source/ntdll_pe_compat.c'
+                data = read(name)
+                first = data.index('void WINAPI RtlRbInsertNodeEx(')
+                last = data.index('ULONG WINAPI RtlRandom(', first)
+                patched[name] = data[:first] + rtl[start:end] + data[last:]
+                replace(name, '#include "wine/exception.h"',
+                        '#include "wine/exception.h"\n#include "wine/debug.h"\n'
+                        'WINE_DEFAULT_DEBUG_CHANNEL(ntdll);')
+                name = 'dlls/ntdll/loader.c'
+                replace(name, '        if (!status) status = pes13_fex_install_module(loaded[3]->ldr.DllBase);',
+                        '        if (!status) status = pes13_fex_install_module(loaded[3]->ldr.DllBase);\n'
+                        '        if (!status) status = pes13_fex_install_dispatcher(loaded[0]->ldr.DllBase,\n'
+                        '            &base_address_index_tree, loaded[3]->ldr.DllBase, loaded[1]->ldr.DllBase);')
+                name = 'dlls/ntdll/unix/signal_arm64.c'
+                replace(name, '''NTSTATUS call_user_exception_dispatcher( EXCEPTION_RECORD *rec, CONTEXT *context )
+{
+    (void)rec;
+    (void)context;
+    return STATUS_NOT_IMPLEMENTED;
+}''', r'''
+/* Match the native ARM64 ntdll exception frame, including CONTEXT_EX. The
+ * Horizon syscall bridge uses the caller stack, so resume directly instead
+ * of setting a Linux syscall_frame. The PE dispatcher invokes Wine's normal
+ * Wow64PrepareForException / Wow64PassExceptionToGuest path. */
+#include "wine_bridge.h"
+struct horizon_exc_stack_layout
+{
+    CONTEXT context;
+    CONTEXT_EX context_ex;
+    EXCEPTION_RECORD rec;
+    ULONG64 align, sp, pc, redzone[2];
+};
+C_ASSERT(offsetof(struct horizon_exc_stack_layout, rec) == 0x3b0);
+C_ASSERT(sizeof(struct horizon_exc_stack_layout) == 0x470);
+
+NTSTATUS call_user_exception_dispatcher(EXCEPTION_RECORD *rec, CONTEXT *context)
+{
+    struct horizon_exc_stack_layout *stack;
+    CONTEXT next;
+    unsigned int trace = pes13_fex_begin_guest_dispatch();
+    pes13_fex_trace_guest_dispatch(trace, "enter", rec, context);
+    if (!rec || !context || !pKiUserExceptionDispatcher || !context->Sp)
+        return STATUS_INVALID_PARAMETER;
+    pes13_fex_fault_stage(5, context->Pc, (uintptr_t)rec->ExceptionAddress, rec->ExceptionCode);
+    next = *context;
+    stack = virtual_setup_exception((void *)(context->Sp & ~15ull), sizeof(*stack), rec);
+    if (!stack) return STATUS_STACK_OVERFLOW;
+    pes13_fex_trace_guest_dispatch(trace, "stack-ready", rec, context);
+    memmove(&stack->context, context, sizeof(*context));
+    memmove(&stack->rec, rec, sizeof(*rec));
+    /* Same empty-XSTATE layout as Wine's ARM64 signal path. */
+    memset(&stack->context_ex, 0, sizeof(stack->context_ex));
+    stack->context_ex.Legacy.Length = sizeof(CONTEXT);
+    stack->context_ex.Legacy.Offset = -(LONG)sizeof(CONTEXT);
+    stack->context_ex.XState.Length = 0;
+    stack->context_ex.XState.Offset = (BYTE *)stack->redzone - (BYTE *)&stack->context_ex;
+    stack->context_ex.All.Length = sizeof(CONTEXT) + stack->context_ex.XState.Offset;
+    stack->context_ex.All.Offset = -(LONG)sizeof(CONTEXT);
+    stack->align = 0;
+    stack->sp = context->Sp;
+    stack->pc = context->Pc;
+    next.Pc = (ULONG_PTR)pKiUserExceptionDispatcher;
+    next.Sp = (ULONG_PTR)stack;
+    next.X18 = (ULONG_PTR)NtCurrentTeb();
+    next.ContextFlags |= CONTEXT_FULL | CONTEXT_ARM64_X18;
+    pes13_fex_trace_guest_dispatch(trace, "continue-dispatcher", rec, &next);
+    pes13_fex_fault_stage(6, next.Pc, (uintptr_t)rec->ExceptionAddress, rec->ExceptionCode);
+    return signal_set_full_context(&next);
+}''')
+                name = 'dlls/ntdll/unix/horizon.c'
+                # The first team-selection freeze follows failed FEX heap
+                # commits, but Horizon's detailed HMAP errors are hidden when
+                # production disables the verbose trace. Emit only a bounded
+                # failure path to the existing runtime log; never reopen an SD
+                # file for every successful mapping or protection change.
+                replace(name, 'static int set_code_memory_perm( void *addr, void *source, size_t size, int prot, BOOL source_accessible )', r'''
+static void pes13_fex_hmap_failure( const char *fmt, ... )
+{
+    static LONG failures;
+    char detail[224], line[256];
+    __builtin_va_list args;
+    if (__atomic_add_fetch( &failures, 1, __ATOMIC_RELAXED ) > 24) return;
+    __builtin_va_start( args, fmt );
+    vsnprintf( detail, sizeof(detail), fmt, args );
+    __builtin_va_end( args );
+    snprintf( line, sizeof(line), "[FEX3-HMAP] %s", detail );
+    wine_nx_runtime_trace( line );
+}
+
+static int set_code_memory_perm( void *addr, void *source, size_t size, int prot, BOOL source_accessible )''')
+                for failure in (
+                    'set_perm failed', 'map_code failed', 'create_backing failed',
+                    'reserve_target failed', 'map_backing failed',
+                    'split_reservation failed', 'commit map_backing failed',
+                ):
+                    replace(name, f'horizon_trace( "[HMAP] {failure}',
+                            f'pes13_fex_hmap_failure( "[HMAP] {failure}')
+                replace(name, '            errno = ENOMEM;\n            return -1;\n        }\n\n        mapping_start = mapping->addr;',
+                        '            errno = ENOMEM;\n'
+                        '            pes13_fex_hmap_failure( "[HMAP] no mapping for commit range=%p/0x%lx",\n'
+                        '                                     start, (unsigned long)(end - start) );\n'
+                        '            return -1;\n        }\n\n        mapping_start = mapping->addr;')
+                # The splash-to-intro run fails while replacing a 60 KiB
+                # mapping. Preserve the exact Horizon result and source alias
+                # for the next device run; errno=EINVAL alone loses both.
+                replace(name,
+                        '        WARN( "svcUnmapProcessCodeMemory(%p, %p, %zu) failed %#x.\\n", addr, source, size, rc );',
+                        '        {\n'
+                        '            static LONG failures;\n'
+                        '            if (__atomic_add_fetch( &failures, 1, __ATOMIC_RELAXED ) <= 16)\n'
+                        '                horizon_trace( "[FEX3-HMAP] unmap failed addr=%p source=%p size=0x%lx rc=0x%x",\n'
+                        '                               addr, source, (unsigned long)size, rc );\n'
+                        '        }\n'
+                        '        WARN( "svcUnmapProcessCodeMemory(%p, %p, %zu) failed %#x.\\n", addr, source, size, rc );')
+                replace(name, '            status = virtual_handle_fault(&rec, (void *)ctx->sp.x);',
+                        '        {\n'
+                        '            pes13_fex_fault_stage(1, ctx->pc.x, ctx->far.x, rec.ExceptionCode);\n'
+                        '            status = virtual_handle_fault(&rec, (void *)ctx->sp.x);\n'
+                        '            pes13_fex_fault_stage(2, ctx->pc.x, ctx->far.x, status);\n'
+                        '        }')
+                replace(name, '{ ctx->pc.x += 4; horizon_resume_exception(ctx); }',
+                        '{ pes13_fex_context_fault_barrier(); ctx->pc.x += 4; horizon_resume_exception(ctx); }')
+                name = 'dlls/ntdll/unix/sync.c'
+                read(name)  # Also restore the original when leaving the experiment.
+                if samecore_yield:
+                    # The observed FEX run reaches >65k NtDelayExecution calls/s.
+                    # Preserve Sleep(0)'s yield while avoiding forced migration.
+                    replace(name, '    svcSleepThread( -1 );  /* YieldType_WithCoreMigration */',
+                            '    svcSleepThread( 0 );  /* YieldType_WithoutCoreMigration: FEX Sleep(0) */')
+                name = 'dlls/ntdll/unix/process.c'
+                replace(name, '            snprintf( buf, sizeof(buf), "[EXIT] NtTerminateProcess(self) exit_code=0x%08x", (unsigned)exit_code );',
+                        '            extern void pes13_fex_dump_fault_stages(void);\n'
+                        '            pes13_fex_dump_fault_stages();\n'
+                        '            snprintf( buf, sizeof(buf), "[EXIT] NtTerminateProcess(self) exit_code=0x%08x", (unsigned)exit_code );')
+                name = 'wine-nx-probe/CMakeLists.txt'
+                replace(name, 'add_compile_definitions(WINE_NX_FEX=1)',
+                        'add_compile_definitions(WINE_NX_FEX=1 PES13_FEX_ISOLATED_EXCEPTIONS=1)')
+                replace(name, ' "${PES13_LIBNX_EXCEPTION_OBJECT}")',
+                        ' "${PES13_FEX_DIR}/exception_isolated.S" source/pes13_preload.c)\n'
+                        'target_link_options(wine-nx-runtime PRIVATE -Wl,--wrap=appletInitialize)')
+                name = 'wine-nx-probe/source/runtime.c'
+                from perf34_patches import _replace_runtime_flags
+                patched[name] = _replace_runtime_flags(read(name), project)
+                replace(name, '#define DEFAULT_TARGET WINE_DRIVE_C "/fex-smoke.exe"',
+                        '#define DEFAULT_TARGET WINE_DRIVE_C "/PES13/pes2013.exe"')
+                replace(name, '"pes13-fex2-x86-bringup"', '"pes13-fex3-self-suspend"')
+                replace(name, '    wine_nx_runtime_trace("[FEX2] context preflight before Wine startup");',
+                        '    const int guest_tests = wine_nx_config_file_bool(RUNTIME_DIR "/run-guest-tests.txt", 1);\n'
+                        '    const unsigned fex_profile = guest_tests ? 0 :\n'
+                        '        wine_nx_config_file_bool(RUNTIME_DIR "/fex-fastest.txt", 0) ? 2 :\n'
+                        '        wine_nx_config_file_bool(RUNTIME_DIR "/fex-fast.txt", 1) ? 1 : 0;\n'
+                        '    pes13_fex_set_performance_profile(fex_profile);\n'
+                        '    if (guest_tests) snprintf(target, sizeof(target), "%s/fex-stress.exe", WINE_DRIVE_C);\n'
+                        '    wine_nx_runtime_trace("[FEX3-MEM] v1 reserved-range recovery and self-thread cleanup query");\n'
+                        '    wine_nx_runtime_trace("[FEX3-FD] v1 startup descriptors matched by original fd; keyed wakeups");\n'
+                        '    wine_nx_runtime_trace("[FEX3-SUSPEND] Box64-style status passthrough; no injected 1ms delay");\n'
+                        '    wine_nx_runtime_trace("[FEX3] isolated exception context preflight");' +
+                        ('\n    wine_nx_runtime_trace("[FEX3-YIELD] same-core Sleep(0) experiment");'
+                         if samecore_yield else ''))
+                replace(name, '    if (!pes13_fex_context_preflight()) park_forever();',
+                        '    if (!pes13_fex_context_preflight()) park_forever();\n'
+                        '    if (guest_tests && !pes13_fex_fault_stress()) park_forever();')
+                replace(name, 'static void runtime_report_interpreter(void)\n{',
+                        'static void runtime_report_interpreter(void)\n{\n'
+                        '    pes13_fex_report_heap();')
+                replace(name, '    wine_nx_pes13_registry_enabled = 0;',
+                        '    wine_nx_pes13_registry_enabled = !guest_tests;')
+                # Retain the unified INI instead of reintroducing boolean files.
+                # FEX2's console default also matches the tested PES DXVK path.
+                replace(name, '    log_line( "[PES13-BOOT] single NRO; launching %s", target );',
+                        '    log_line("[FEX3] mode=%s; one NRO; target=%s", guest_tests ? "guest-stress" : "PES13", target);')
+                # Production previously waited two minutes before emitting
+                # its first progress line. During the first 120 seconds, use
+                # the existing second-call gate to emit a bounded line every
+                # ten seconds, then restore the production cadence.
+                replace(name, '        runtime_tick_std_streams();\n'
+                        '        ++ticks;\n'
+                        '        if ((!wine_nx_production && ticks % 25 == 0) ||\n'
+                        '            (wine_nx_production && ticks % 300 == 0)) runtime_report_interpreter();',
+                        '        ++ticks;\n'
+                        '        if (wine_nx_production && ticks <= 600 && ticks % 25 == 0)\n'
+                        '        {\n'
+                        '            extern unsigned int wine_nx_vk_presents __attribute__((weak));\n'
+                        '            unsigned int presents = &wine_nx_vk_presents\n'
+                        '                ? __atomic_load_n( &wine_nx_vk_presents, __ATOMIC_RELAXED ) : 0;\n'
+                        '            pthread_mutex_lock( &log_mutex );\n'
+                        '            fprintf( log_file, "[FEX3-BOOT] %us vk_presents=%u fb_frames=%u\\n",\n'
+                        '                     ticks / 5, presents,\n'
+                        '                     __atomic_load_n( &wine_nx_fb_frames, __ATOMIC_RELAXED ) );\n'
+                        '            fflush( log_file );\n'
+                        '            pthread_mutex_unlock( &log_mutex );\n'
+                        '        }\n'
+                        '        runtime_tick_std_streams();\n'
+                        '        if ((!wine_nx_production && ticks % 25 == 0) ||\n'
+                        '            (wine_nx_production && (ticks <= 600 ? ticks % 25 == 0 : ticks % 300 == 0)))\n'
+                        '            runtime_report_interpreter();')
+                # The latest PES log activates an unidentified top-level
+                # popup just before blackscreen. Record its bounded title,
+                # class and owner without enabling Wine's per-message trace.
+                name = 'dlls/win32u/window.c'
+                replace(name, '    if (!(style & WS_CHILD))\n'
+                        '        nx_window_trace( "[NXWIN] thread %04x shows hwnd %p with %d (style %#x, visible %d%s)",\n'
+                        '                         (int)GetCurrentThreadId(), hwnd, cmd, (int)style, was_visible,\n'
+                        '                         is_iconic( hwnd ) ? ", minimized" : "" );',
+                        '    if (!(style & WS_CHILD))\n'
+                        '    {\n'
+                        '        WCHAR title[96] = {0}, class_name[64] = {0};\n'
+                        '        UNICODE_STRING cls = {0, sizeof(class_name), class_name};\n'
+                        '        NtUserInternalGetWindowText( hwnd, title, ARRAY_SIZE(title) );\n'
+                        '        NtUserGetClassName( hwnd, FALSE, &cls );\n'
+                        '        nx_window_trace( "[NXWIN] thread %04x shows hwnd %p with %d (style %#x, visible %d%s) owner=%p class=%s title=%s",\n'
+                        '                         (int)GetCurrentThreadId(), hwnd, cmd, (int)style, was_visible,\n'
+                        '                         is_iconic( hwnd ) ? ", minimized" : "",\n'
+                        '                         get_window_relative( hwnd, GW_OWNER ),\n'
+                        '                         debugstr_w( class_name ), debugstr_w( title ) );\n'
+                        '    }')
+                from fex_stall_patches import apply as apply_stall
+                apply_stall(read, replace, project)
+                from fex_self_suspend_patches import apply as apply_self_suspend
+                apply_self_suspend(read, replace, project)
+                for key in list(patched):
+                    patched[key] = patched[key].replace('switch/pes13-fex2', 'switch/pes13-fex')
 
         state_file = work / (kind + '-patches.json')
         previous = json.loads(state_file.read_text()) if state_file.exists() else {}
