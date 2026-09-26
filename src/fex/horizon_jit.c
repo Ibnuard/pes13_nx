@@ -334,8 +334,17 @@ static void release_scratch(void *address) { free(address); }
 static uint64_t heap_live, heap_peak, heap_allocations, heap_failures;
 static unsigned performance_profile;
 
+unsigned pes13_fex_select_performance_profile(int guest_tests, int fast,
+                                              int fastest, int relaxed_vectors) {
+    if (guest_tests) return PES13_FEX_CONTROL;
+    if (fastest) return PES13_FEX_FASTEST;
+    if (!fast) return PES13_FEX_CONTROL;
+    return relaxed_vectors ? PES13_FEX_FAST_VECTOR : PES13_FEX_FAST;
+}
+
 void pes13_fex_set_performance_profile(unsigned profile) {
-    performance_profile = profile <= 2 ? profile : 0; /* Before CPU/worker init. */
+    performance_profile = profile <= PES13_FEX_FAST_VECTOR ? profile : PES13_FEX_CONTROL;
+    /* Before CPU/worker init; never switch a running context's memory model. */
 }
 static unsigned get_performance_profile(void) { return performance_profile; }
 

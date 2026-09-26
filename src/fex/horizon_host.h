@@ -15,6 +15,13 @@ extern "C" {
 #define PES13_FEX_HOST_ABI 3u
 #define PES13_FEX_HOST_MAGIC 0x46455848u
 
+enum pes13_fex_profile {
+    PES13_FEX_CONTROL = 0,
+    PES13_FEX_FAST = 1,
+    PES13_FEX_FASTEST = 2,
+    PES13_FEX_FAST_VECTOR = 3,
+};
+
 struct pes13_fex_host {
     uint32_t magic;
     uint32_t version;
@@ -35,7 +42,7 @@ struct pes13_fex_host {
      * guarded mappings, executable code, or pointers freed by guest CRTs. */
     void *(*allocate_heap)(uint64_t size, uint64_t alignment);
     void (*release_heap)(void *address);
-    unsigned (*performance_profile)(void); /* 0=control, 1=fast, 2=fastest */
+    unsigned (*performance_profile)(void); /* enum pes13_fex_profile */
 };
 
 /* Immediately before an allocate_heap result. Read-only to the PE module;
@@ -92,6 +99,10 @@ void PES13FexTraceGuestFault(uint32_t ticket, const char *stage, uint64_t pc, ui
 /* Native implementation, also exercised by the standalone JIT probe. */
 const struct pes13_fex_host *pes13_fex_native_host(void);
 void pes13_fex_set_logger(void (*logger)(const char *));
+/* Startup only: guest tests override every speed option; vector relaxation
+ * is opt-in and applies only to Fast. Existing preset numbers stay stable. */
+unsigned pes13_fex_select_performance_profile(int guest_tests, int fast,
+                                              int fastest, int relaxed_vectors);
 void pes13_fex_set_performance_profile(unsigned profile);
 void pes13_fex_report_heap(void);
 

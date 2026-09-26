@@ -384,12 +384,13 @@ static int set_code_memory_perm( void *addr, void *source, size_t size, int prot
                 patched[name] = _replace_runtime_flags(read(name), project)
                 replace(name, '#define DEFAULT_TARGET WINE_DRIVE_C "/fex-smoke.exe"',
                         '#define DEFAULT_TARGET WINE_DRIVE_C "/PES13/pes2013.exe"')
-                replace(name, '"pes13-fex2-x86-bringup"', '"pes13-fex3-self-suspend"')
+                replace(name, '"pes13-fex2-x86-bringup"', '"pes13-fex3-timing-audit"')
                 replace(name, '    wine_nx_runtime_trace("[FEX2] context preflight before Wine startup");',
                         '    const int guest_tests = wine_nx_config_file_bool(RUNTIME_DIR "/run-guest-tests.txt", 1);\n'
-                        '    const unsigned fex_profile = guest_tests ? 0 :\n'
-                        '        wine_nx_config_file_bool(RUNTIME_DIR "/fex-fastest.txt", 0) ? 2 :\n'
-                        '        wine_nx_config_file_bool(RUNTIME_DIR "/fex-fast.txt", 1) ? 1 : 0;\n'
+                        '    const unsigned fex_profile = pes13_fex_select_performance_profile(guest_tests,\n'
+                        '        wine_nx_config_file_bool(RUNTIME_DIR "/fex-fast.txt", 1),\n'
+                        '        wine_nx_config_file_bool(RUNTIME_DIR "/fex-fastest.txt", 0),\n'
+                        '        wine_nx_config_file_bool(RUNTIME_DIR "/fex-relaxed-vectors.txt", 0));\n'
                         '    pes13_fex_set_performance_profile(fex_profile);\n'
                         '    if (guest_tests) snprintf(target, sizeof(target), "%s/fex-stress.exe", WINE_DRIVE_C);\n'
                         '    wine_nx_runtime_trace("[FEX3-MEM] v1 reserved-range recovery and self-thread cleanup query");\n'
@@ -459,6 +460,14 @@ static int set_code_memory_perm( void *addr, void *source, size_t size, int prot
                 apply_stall(read, replace, project)
                 from fex_self_suspend_patches import apply as apply_self_suspend
                 apply_self_suspend(read, replace, project)
+                from fex_frame_patches import apply as apply_frame
+                apply_frame(read, replace, project)
+                from fex_pipeline_patches import apply as apply_pipeline
+                apply_pipeline(read, replace, project)
+                from fex_sync_patches import apply as apply_sync
+                apply_sync(read, replace, project)
+                from fex_game_timing_patches import apply as apply_game_timing
+                apply_game_timing(read, replace, project)
                 for key in list(patched):
                     patched[key] = patched[key].replace('switch/pes13-fex2', 'switch/pes13-fex')
 

@@ -82,12 +82,23 @@ def native_checks(elf):
         assert m.callback(72, size, align) == 0
     m.callback(80, 0)
     assert m.uq(m.symbols['heap_live']) == 0
-    for profile in (0, 1, 2, 9):
+    # Exercise the actual linked startup selector, including ignored vector
+    # flags in control/guest-test mode and the legacy Fastest precedence.
+    for guest in (0, 1):
+        for fast, fastest, vectors, expected in (
+            (0, 0, 0, 0), (0, 0, 1, 0), (1, 0, 0, 1), (1, 0, 1, 3),
+            (0, 1, 0, 2), (0, 1, 1, 2), (1, 1, 0, 2), (1, 1, 1, 2),
+        ):
+            actual = m.call(m.symbols['pes13_fex_select_performance_profile'],
+                            guest, fast, fastest, vectors)
+            assert actual == (0 if guest else expected), (guest, fast, fastest, vectors, actual)
+    for profile in (0, 1, 2, 3, 4, 9):
         m.call(m.symbols['pes13_fex_set_performance_profile'], profile)
-        assert m.callback(88) == (profile if profile <= 2 else 0)
+        assert m.callback(88) == (profile if profile <= 3 else 0)
     return ['48 native alignment/size combinations, header ownership and arbitrary free order',
             'overflow/invalid alignment/malloc failure return NULL without live-byte leak',
-            'native profile selection accepts 0/1/2 and rejects unknown values']
+            '16 linked startup combinations preserve guest/control/fast/fastest/vector precedence',
+            'native profile selection accepts 0/1/2/3 and rejects unknown values']
 
 
 def pe_checks(dll, values):
@@ -143,11 +154,11 @@ def pe_checks(dll, values):
     assert len(enums) == len(set(enums)) and 'X87REDUCEDPRECISION' in enums
     m.call('_ZN3FEX7Windows14InitCRTProcessEv')
     m.call('_ZN7FEXCore6Config10InitializeEv')
-    for profile in (0, 1, 2, 1):
+    for profile in (0, 1, 2, 3, 1, 3, 0):
         m.profile = profile
         m.call('PES13FexApplyPerformanceProfile')
         expected = {'X87REDUCEDPRECISION': int(profile != 0), 'TSOENABLED': int(profile != 2),
-                    'VECTORTSOENABLED': int(profile != 2), 'MEMCPYSETTSOENABLED': int(profile != 2), 'HALFBARRIERTSOENABLED': 1,
+                    'VECTORTSOENABLED': int(profile not in (2, 3)), 'MEMCPYSETTSOENABLED': int(profile != 2), 'HALFBARRIERTSOENABLED': 1,
                     'MULTIBLOCK': 1, 'MAXINST': 5000, 'SMCCHECKS': 1}
         for name, value in expected.items():
             kind = 'i' if name == 'MAXINST' else 'h' if name == 'SMCCHECKS' else 'b'
@@ -158,7 +169,7 @@ def pe_checks(dll, values):
         assert not m.trapped and m.vm.reg_read(reg(18)) == TEB
     m.call('_ZN7FEXCore6Config8ShutdownEv')
     assert not any(name.startswith(('NtAllocateVirtualMemory', 'NtFreeVirtualMemory')) for name, _ in m.calls)
-    checks.append('real FEX typed config getters confirm control/fast/fastest and return-to-fast overrides')
+    checks.append('real FEX typed config getters confirm control/fast/fastest/fast-vector and restore strict vector TSO on return')
     return checks
 
 

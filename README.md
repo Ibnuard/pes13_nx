@@ -1,5 +1,15 @@
 # PES13-NX
 
+Latest FEX experiment: [read-only PES timing audit and batched diagnostics](docs/FEX3-TIMING-AUDIT.md).
+The Fast-vector device test still shows accelerated motion and poorer camera
+pacing than Fastest. `dist/pes13-fex3-timing-audit/` selects the existing Fastest
+profile, removes per-line SD flushes during periodic reports, and samples
+PES's own timing/frame-skipping state every five seconds. It does not yet
+claim to fix the 2x motion or sustain 30 FPS. The folder contains one NRO and
+its paired dependencies, without a ZIP. The prior
+[Fast-vector](docs/FEX3-FAST-VECTOR.md) and
+[Fast/Control comparison](docs/FEX3-SPEED-PRESETS.md) packages are preserved.
+
 PES 2013 PC on Nintendo Switch, using a custom PES13-NX Horizon runtime built
 from Wine-NX/Wine, Box64's ARM64 dynamic recompiler, and Direct3D 9 through
 DXVK + Mesa NVK. Upstream credits and licenses are listed in [THIRD_PARTY.md](THIRD_PARTY.md).
@@ -95,6 +105,11 @@ restores the earlier Fastest configuration. Local concurrent and linked ARM64
 tests pass. The tester now reports reaching a match at visually around 30 FPS,
 with a few remaining bugs. This is the [current checkpoint](docs/FEX3-CHECKPOINT.md);
 stable measured 30 FPS and a controlled comparison with Box64 remain unverified.
+The follow-up [frame-pacing candidate](docs/FEX3-FRAME-PACING.md) restores the
+Box64 package's DXVK limiter setting and adds native frame-gap measurements
+for the reported brief pauses and apparent speed bursts during kick-off.
+It is delivered as a copy-ready folder without a ZIP; device validation is
+pending and the self-suspend checkpoint remains available.
 The established game runtime still uses
 Box64 on the main branch; this branch retains the working FEX checkpoint.
 

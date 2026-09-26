@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import struct
+from elftools.elf.elffile import ELFFile
 
 from fex_reservations import Model as NativeModel, arm, reg
 
@@ -14,6 +15,14 @@ class Model(NativeModel):
         self.locked = False
         self.conn, self.obj, self.entry, self.request = [self.data + n for n in (0x200, 0x400, 0x800, 0x900)]
         self.tls = self.data + 0x1000
+        # ARM64 ELF TLS uses a 16-byte TCB. Adding another native thread-local
+        # variable moves this symbol; a hardcoded old offset tests the wrong
+        # connection rather than the shipping pseudo-handle lookup.
+        with path.open('rb') as f:
+            syms = ELFFile(f).get_section_by_name('.symtab')
+            sym = syms.get_symbol_by_name('horizon_server_current')[0]
+            assert sym['st_info']['type'] == 'STT_TLS' and sym['st_size'] == 8
+            self.current_tls_offset = 16 + sym['st_value']
         self.steps = []
         self.reply = None
         self.waits = 0
@@ -76,7 +85,7 @@ class Model(NativeModel):
         self.w(self.entry, 0x100)
         self.q(self.entry + 8, self.obj)
         self.q(self.symbols['horizon_server_handle_hash'] + (0x100 >> 2) * 8, self.entry)
-        self.q(self.tls + 0x38, self.conn)
+        self.q(self.tls + self.current_tls_offset, self.conn)
         self.vm.mem_write(self.request, struct.pack('<6I', 0, 0, 0, handle, 0, 0))
         self.steps, self.reply, self.waits = list(steps), None, 0
         self.returned = False
