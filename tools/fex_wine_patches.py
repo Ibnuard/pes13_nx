@@ -6,7 +6,9 @@ import json
 
 def apply(work, project, integration=False, samecore_yield=False, runtime_fixes=False, diagnostic=False,
           resume_gate=False, stability=False, hang_audit=False, warm_audit=False, jit_latency=False, sleep_deadline=False,
-          worker_cores=False, jit_log_queue=False):
+          worker_cores=False, jit_log_queue=False, yield_burst=False):
+    if yield_burst and (not jit_log_queue or not samecore_yield):
+        raise ValueError('Yield burst requires JIT log queue and same-core yield baseline')
     if jit_log_queue and not worker_cores:
         raise ValueError('JIT log queue requires worker placement baseline')
     if worker_cores and not sleep_deadline:
@@ -534,6 +536,9 @@ static int set_code_memory_perm( void *addr, void *source, size_t size, int prot
                 if jit_log_queue:
                     from fex_jit_log_patches import apply as apply_jit_log_queue
                     apply_jit_log_queue(read, replace, project)
+                if yield_burst:
+                    from fex_yield_burst_patches import apply as apply_yield_burst
+                    apply_yield_burst(read, replace, project)
                 for key in list(patched):
                     patched[key] = patched[key].replace('switch/pes13-fex2', 'switch/pes13-fex')
 

@@ -56,7 +56,11 @@ def main():
                         help='Prefer cores 0-2 for automatic workers; preserve explicit guest affinity')
     parser.add_argument('--jit-log-queue', action='store_true',
                         help='Queue JIT timing reports for the existing logger, avoiding game-thread SD writes')
+    parser.add_argument('--yield-burst', action='store_true',
+                        help='Brief backoff only after dense ineffective yields; keep ordinary waits intact')
     args = parser.parse_args()
+    if args.yield_burst and (not args.jit_log_queue or not args.samecore_yield):
+        parser.error('--yield-burst requires --jit-log-queue --samecore-yield')
     if args.jit_log_queue and not args.worker_cores:
         parser.error('--jit-log-queue requires --worker-cores')
     if args.worker_cores and not args.sleep_deadline:
@@ -105,7 +109,7 @@ def main():
                     diagnostic=args.diagnostic, resume_gate=args.resume_gate, stability=args.stability,
                     hang_audit=args.hang_audit, warm_audit=args.warm_audit, jit_latency=args.jit_latency,
                     sleep_deadline=args.sleep_deadline, worker_cores=args.worker_cores,
-                    jit_log_queue=args.jit_log_queue)
+                    jit_log_queue=args.jit_log_queue, yield_burst=args.yield_burst)
     (evidence / 'wine-patches.json').write_text(json.dumps(patches, indent=2) + '\n')
 
     devkit = Path('/opt/devkitpro')
@@ -172,6 +176,7 @@ def main():
               'sleep_deadline': args.sleep_deadline,
               'worker_cores': args.worker_cores,
               'jit_log_queue': args.jit_log_queue,
+              'yield_burst': args.yield_burst,
               'diagnostic': args.diagnostic,
               'resume_gate': args.resume_gate,
               'samecore_yield': args.samecore_yield,
@@ -245,6 +250,11 @@ def main():
         report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
                                        for name in ('tools/fex_jit_log_patches.py',
                                                     'src/runtime/fex_jit_log_queue.h')})
+    if args.yield_burst:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+                                       for name in ('tools/fex_yield_burst_patches.py',
+                                                    'src/runtime/fex_yield_burst.h',
+                                                    'src/runtime/fex_yield_runtime.h')})
     if not args.native_only:
         pe = work / 'pe-build'
         pe.mkdir(exist_ok=True)
