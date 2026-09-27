@@ -5,7 +5,14 @@ import json
 
 
 def apply(work, project, integration=False, samecore_yield=False, runtime_fixes=False, diagnostic=False,
-          resume_gate=False, stability=False, hang_audit=False, warm_audit=False, jit_latency=False):
+          resume_gate=False, stability=False, hang_audit=False, warm_audit=False, jit_latency=False, sleep_deadline=False,
+          worker_cores=False, jit_log_queue=False):
+    if jit_log_queue and not worker_cores:
+        raise ValueError('JIT log queue requires worker placement baseline')
+    if worker_cores and not sleep_deadline:
+        raise ValueError('Worker placement requires sleep deadline baseline')
+    if sleep_deadline and not jit_latency:
+        raise ValueError('Sleep deadline requires JIT latency baseline')
     if jit_latency and not warm_audit:
         raise ValueError('JIT latency requires warm audit')
     if warm_audit and not hang_audit:
@@ -518,6 +525,15 @@ static int set_code_memory_perm( void *addr, void *source, size_t size, int prot
                 if jit_latency:
                     from fex_jit_latency_patches import apply as apply_jit_latency
                     apply_jit_latency(read, replace, project)
+                if sleep_deadline:
+                    from fex_sleep_patches import apply as apply_sleep
+                    apply_sleep(read, replace, project)
+                if worker_cores:
+                    from fex_worker_core_patches import apply as apply_worker_cores
+                    apply_worker_cores(read, replace, project)
+                if jit_log_queue:
+                    from fex_jit_log_patches import apply as apply_jit_log_queue
+                    apply_jit_log_queue(read, replace, project)
                 for key in list(patched):
                     patched[key] = patched[key].replace('switch/pes13-fex2', 'switch/pes13-fex')
 

@@ -152,7 +152,7 @@ def main():
     for synchronized in (0, 1):
         for destination in (9, 17, 28):
             model.writeq(emitter+0x48, buffer)
-            model.writeq(emitter+0x60, mapping)
+            model.writeq(emitter+0x60+model.emitter_view_offset, mapping)
             model.vm.mem_write(mapping+3*4, struct.pack('<I', destination))
             model.vm.mem_write(node+0x10, b'\x43')  # GPR class, physical slot 3.
             model.vm.mem_write(ir+4, bytes([synchronized]))

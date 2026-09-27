@@ -64,8 +64,8 @@ class Model(LookupModel):
         assert not self.trapped and self.vm.reg_read(arm.UC_ARM64_REG_PC) == self.stop
         end = self.readq(self.emitter+8)
         assert CODE < end <= CODE+0x4000
-        self.loop = self.readq(self.emitter+0xa0)
-        self.fill = self.readq(self.emitter+0xa8)
+        self.loop = self.readq(self.emitter+0xa0+self.emitter_view_offset)
+        self.fill = self.readq(self.emitter+0xa8+self.emitter_view_offset)
         self.destinations = {HIT:'hit',
             self.symbols[self.method('ContextImpl12CompileBlock')]: 'fallback',
             self.symbols[self.method('ContextImpl17CompileSingleStep')]: 'single_step'}

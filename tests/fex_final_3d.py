@@ -78,7 +78,7 @@ def emit_tests(dll):
     for length in (*range(1, 16), 16, 31, 32, 63, 64, 124, 127, 128, 254, 255):
         m.vm.mem_write(emitter, bytes(0x400))
         m.writeq(emitter+0x48, buffer)
-        m.writeq(emitter+0x60, mapping)
+        m.writeq(emitter+0x60+m.emitter_view_offset, mapping)
         for slot, register in ((3, 9), (4, 10), (5, 11)):
             m.vm.mem_write(mapping+slot*4, struct.pack('<I', register))
         m.vm.mem_write(node+0x10, b'\x43')

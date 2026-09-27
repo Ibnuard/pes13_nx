@@ -48,6 +48,7 @@ class Model:
     def __init__(self, path, *, clobber_host_x18=False):
         self.clobber_host_x18 = clobber_host_x18
         data = path.read_bytes()
+        self.emitter_view_offset = 8 if b'[FEX3-EMIT] v1' in data else 0
         pe = pefile.PE(data=data)
         self.symbols = coff_symbols(data, pe)
         self.base = pe.OPTIONAL_HEADER.ImageBase

@@ -50,7 +50,19 @@ def main():
                         help='Post-hang-audit: defer routine FEX flushes; observe pipeline creation and driver cache')
     parser.add_argument('--jit-latency', action='store_true',
                         help='Post-warm-audit: 500-instruction JIT candidate; INI selects 5000 control')
+    parser.add_argument('--sleep-deadline', action='store_true',
+                        help='Post-JIT-latency: monotonic relative sleeps and live self-wait age reports')
+    parser.add_argument('--worker-cores', action='store_true',
+                        help='Prefer cores 0-2 for automatic workers; preserve explicit guest affinity')
+    parser.add_argument('--jit-log-queue', action='store_true',
+                        help='Queue JIT timing reports for the existing logger, avoiding game-thread SD writes')
     args = parser.parse_args()
+    if args.jit_log_queue and not args.worker_cores:
+        parser.error('--jit-log-queue requires --worker-cores')
+    if args.worker_cores and not args.sleep_deadline:
+        parser.error('--worker-cores requires --sleep-deadline')
+    if args.sleep_deadline and not args.jit_latency:
+        parser.error('--sleep-deadline requires --jit-latency')
     if args.jit_latency and not args.warm_audit:
         parser.error('--jit-latency requires --warm-audit')
     if args.warm_audit and not args.hang_audit:
@@ -91,7 +103,9 @@ def main():
     patches = apply(work, project, integration=args.integration,
                     samecore_yield=args.samecore_yield, runtime_fixes=args.runtime_fixes,
                     diagnostic=args.diagnostic, resume_gate=args.resume_gate, stability=args.stability,
-                    hang_audit=args.hang_audit, warm_audit=args.warm_audit, jit_latency=args.jit_latency)
+                    hang_audit=args.hang_audit, warm_audit=args.warm_audit, jit_latency=args.jit_latency,
+                    sleep_deadline=args.sleep_deadline, worker_cores=args.worker_cores,
+                    jit_log_queue=args.jit_log_queue)
     (evidence / 'wine-patches.json').write_text(json.dumps(patches, indent=2) + '\n')
 
     devkit = Path('/opt/devkitpro')
@@ -155,6 +169,9 @@ def main():
               'hang_audit': args.hang_audit,
               'warm_audit': args.warm_audit,
               'jit_latency': args.jit_latency,
+              'sleep_deadline': args.sleep_deadline,
+              'worker_cores': args.worker_cores,
+              'jit_log_queue': args.jit_log_queue,
               'diagnostic': args.diagnostic,
               'resume_gate': args.resume_gate,
               'samecore_yield': args.samecore_yield,
@@ -216,6 +233,18 @@ def main():
     if args.jit_latency:
         report['patch_sources']['tools/fex_jit_latency_patches.py'] = hashlib.sha256(
             (project / 'tools/fex_jit_latency_patches.py').read_bytes()).hexdigest()
+    if args.sleep_deadline:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+                                       for name in ('tools/fex_sleep_patches.py',
+                                                    'src/runtime/fex_relative_delay.h')})
+    if args.worker_cores:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+                                       for name in ('tools/fex_worker_core_patches.py',
+                                                    'src/runtime/fex_worker_cores.h')})
+    if args.jit_log_queue:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+                                       for name in ('tools/fex_jit_log_patches.py',
+                                                    'src/runtime/fex_jit_log_queue.h')})
     if not args.native_only:
         pe = work / 'pe-build'
         pe.mkdir(exist_ok=True)

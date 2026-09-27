@@ -508,8 +508,22 @@ def apply(source, project, output):
 
     name = 'CodeEmitter/CodeEmitter/Buffer.h'
     include(name)
+    # Resolve the writable view once per owned emission buffer. JIT code is
+    # emitted to ordinary guarded scratch first; resolving every 4-byte store
+    # scanned all CodeAlias slots and crossed PE/native even for identity maps.
+    # Keep RX cursors/relocations and the old checked path outside this range.
+    replace(name, '    Size = BaseSize;\n',
+            '    Size = BaseSize;\n'
+            '    WritableBase = Base && BaseSize\n'
+            '      ? static_cast<uint8_t*>(PES13FexWriteAlias(Base, BaseSize)) : nullptr;\n')
+    replace(name, '  uint64_t Size;\n', '  uint64_t Size;\n  uint8_t* WritableBase;\n')
     replace(name, '  template<typename T>\n  requires',
-            '  static void* Writable(void* Address, size_t Length) {\n'
+            '  void* Writable(void* Address, size_t Length) const {\n'
+            '    const auto Target = reinterpret_cast<uintptr_t>(Address);\n'
+            '    const auto Base = reinterpret_cast<uintptr_t>(BufferBase);\n'
+            '    if (WritableBase && Target >= Base && Target - Base <= Size &&\n'
+            '        Length <= Size - (Target - Base))\n'
+            '      return WritableBase + (Target - Base);\n'
             '    return PES13FexWriteAlias(Address, Length);\n'
             '  }\n\n  template<typename T>\n  requires')
     replace(name, 'std::memcpy(CurrentOffset, &Data, sizeof(Data));',
@@ -520,6 +534,11 @@ def apply(source, project, output):
             'std::memset(Writable(CurrentOffset, Size - CurrentAlignment), 0, Size - CurrentAlignment);')
     replace(name, '__builtin___clear_cache(static_cast<char*>(Begin), static_cast<char*>(Begin) + Length);',
             'PES13FexFlushCode(Begin, Length);')
+
+    name = 'Source/Windows/WOW64/Module.cpp'
+    replace(name, '  PES13FexJitTimingInit();',
+            '  PES13FexJitTimingInit();\n'
+            '  PES13FexLog("[FEX3-EMIT] v1 cached writable buffer; bounded stores, RX cursors preserved");')
 
     name = 'CodeEmitter/CodeEmitter/Emitter.h'
     replace(name, '  CNTFRQ_EL0 = GenSystemReg<0b11, 0b011, 0b1110, 0b0000, 0b000>,',
@@ -736,6 +755,8 @@ def apply(source, project, output):
     for manifest in (Path(output), project / 'local/fex1/horizon-module/patches.json',
                      project / 'local/fex3/macos-module/patches.json',
                      project / 'local/fex3/stability-540p/module/patches.json',
+                     project / 'local/fex3/jit-latency/module/patches.json',
+                     project / 'local/fex3/dispatch-cache/module/patches.json',
                      project / 'local/fex2/module/patches.json',
                      project / 'local/fex3/smc-fix/module/patches.json',
                      project / 'local/fex3/memory-fix/module/patches.json',

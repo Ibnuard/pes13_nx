@@ -57,7 +57,7 @@ def main():
         for length in range(1, 16):  # Every legal x86 instruction length.
             model.vm.mem_write(emitter, bytes(0x400))
             model.writeq(emitter+0x48, buffer)
-            model.writeq(emitter+0x60, mapping)
+            model.writeq(emitter+0x60+model.emitter_view_offset, mapping)
             for slot, register in ((3, destination), (4, crc_reg), (5, base_reg)):
                 model.vm.mem_write(mapping+slot*4, struct.pack('<I', register))
             model.vm.mem_write(node+0x10, b'\x43')
