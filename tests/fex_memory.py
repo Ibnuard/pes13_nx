@@ -222,7 +222,7 @@ def main():
                 assert size == expected
                 assert backing-base == (INDEX_BYTES if enabled else 0)
                 assert l1-backing == (L2_BYTES if enabled else 0)
-                assert mask == (8192 if dynamic else 65536)-1
+                assert mask == (8192 if dynamic and enabled else 65536)-1
                 if enabled:
                     # Enabling L2 still supports every x86 page separately.
                     assert base+((0xfffff000 >> 12)*8)+8 == backing
@@ -238,7 +238,7 @@ def main():
                 assert not model.trapped
             assert not model.regions and not model.tracked and not model.pages and not model.native_regions
     checks.append('296 actual constructors/destructors: 32 live L2-off caches use 32 MiB native resident memory; poisoned allocations cleared and no leaks')
-    checks.append('L2-on retains 25 MiB and full 4 GiB indexing; L1 size/growth and guest config unchanged')
+    checks.append('L2-off immediately uses full resident L1; L2-on retains dynamic sizing and full 4 GiB indexing')
 
     model = MemoryModel(args.dll, l2_enabled=True)
     obj = model.create_lookup(0)

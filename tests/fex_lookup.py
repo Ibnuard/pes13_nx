@@ -200,7 +200,7 @@ def main():
                 model.add(guest, expected[guest])
                 assert model.find(guest) == expected[guest]
                 invalidations += 1
-            if dynamic:
+            if dynamic and enabled:
                 update = model.method('20UpdateDynamicL1Stats')
                 guest = addresses[0]
                 for entries in (16384, 32768, 65536, 65536):

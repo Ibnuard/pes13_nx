@@ -114,6 +114,9 @@ def main():
                          'src/fex/module_smc.cpp', 'src/fex/module_exception.cpp',
                          'src/fex/horizon_smc.h', 'src/fex/horizon_stall.h', 'src/fex/horizon_counter.h', 'src/fex/horizon_heap.h',
                          'src/fex/module_counter.cpp', 'tools/fex_horizon_patches.py']}
+        for name in ('src/fex/horizon_fpu.h', 'src/fex/module_fpu.cpp',
+                     'src/fex/horizon_jit_timing.h', 'src/fex/module_jit_timing.cpp'):
+            report['adapter_sources'][name] = hashlib.sha256((project / name).read_bytes()).hexdigest()
     (output / 'build.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report, indent=2))
 

@@ -51,6 +51,8 @@ def apply(source, project, output):
             '  "${PES13_HORIZON_DIR}/module_exception.cpp"\n'
             '  "${PES13_HORIZON_DIR}/module_smc.cpp"\n'
             '  "${PES13_HORIZON_DIR}/module_counter.cpp"\n')
+    replace(name, '  Module.cpp\n', '  Module.cpp\n  "${PES13_HORIZON_DIR}/module_fpu.cpp"\n'
+            '  "${PES13_HORIZON_DIR}/module_jit_timing.cpp"\n')
     name = 'CMakeLists.txt'
     # Insert before the first target definition, but after language selection.
     replace(name, 'project(FEX C CXX ASM)',
@@ -63,6 +65,23 @@ def apply(source, project, output):
 
     name = 'Source/Windows/WOW64/Module.cpp'
     include(name)
+    replace(name, '#include "horizon_host.h"', '#include "horizon_host.h"\n#include "horizon_fpu.h"\n#include "horizon_jit_timing.h"')
+    replace(name, 'namespace Context {', 'namespace Context {\nstatic bool HorizonReducedPrecision;')
+    replace(name, '  memcpy(State.mm, XSave->FloatRegisters, sizeof(State.mm));',
+            '  PES13FexImportX87(State.mm, XSave->FloatRegisters, XSave->StatusWord,\n'
+            '                    XSave->ControlWord, HorizonReducedPrecision);\n'
+            '  State.mxcsr = XSave->MxCsr & 0xffff;')
+    replace(name, '  memcpy(XSave->FloatRegisters, State.mm, sizeof(State.mm));',
+            '  const uint16_t HorizonStatus = State.flags[FEXCore::X86State::X87FLAG_TOP_LOC] << 11;\n'
+            '  PES13FexExportX87(XSave->FloatRegisters, State.mm, HorizonStatus, HorizonReducedPrecision);\n'
+            '  XSave->MxCsr = State.mxcsr;\n'
+            '  XSave->MxCsr_Mask = 0xffc0;\n'
+            '  for (unsigned i = 0; i < 8; ++i)\n'
+            '    memcpy(Context->FloatSave.RegisterArea + i * 10, &XSave->FloatRegisters[i], 10);')
+    replace(name, 'FEXCore::FPState::ConvertFromAbridgedFTW(XSave->StatusWord, State.mm, XSave->TagWord)',
+            'FEXCore::FPState::ConvertFromAbridgedFTW(XSave->StatusWord,\n'
+            '    *reinterpret_cast<uint64_t (*)[8][2]>(XSave->FloatRegisters), XSave->TagWord)')
+    replace(name, '  XSave->MxCsr = 0x1f80;\n', '')
     replace(name, 'void BTCpuProcessInit() {\n',
             'void BTCpuProcessInit() {\n'
             '  // Never fall back to a Windows RWX allocation on Horizon.\n'
@@ -85,7 +104,20 @@ def apply(source, project, output):
             '  PES13FexHeapPreflight();')
     replace(name, '  FEXCore::Config::ReloadMetaLayer();',
             '  FEXCore::Config::ReloadMetaLayer();\n'
-            '  PES13FexApplyPerformanceProfile();')
+            '  PES13FexApplyPerformanceProfile();\n'
+            '  PES13FexJitTimingInit();\n'
+            '  FEX_CONFIG_OPT(HorizonReduced, X87REDUCEDPRECISION);\n'
+            '  Context::HorizonReducedPrecision = HorizonReduced();\n'
+            '  PES13FexLog("[FEX3-FP] context v1 MXCSR, x87 TOP/F64, legacy registers");\n'
+            '  PES13FexLog("[FEX3-ALIAS] generation-validated PE alias snapshots");')
+    replace(name, '  NtAllocateVirtualMemory(NtCurrentProcess(), &Addr, (1U << 31) - 1, &Size, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);',
+            '  const NTSTATUS TrampolineStatus = NtAllocateVirtualMemory(NtCurrentProcess(), &Addr,\n'
+            '    (1U << 31) - 1, &Size, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);\n'
+            '  if (TrampolineStatus || !Addr) {\n'
+            '    PES13FexLogAllocationFailure("syscall trampoline", 0, Size, MEM_RESERVE | MEM_COMMIT,\n'
+            '                                  PAGE_EXECUTE_READWRITE, TrampolineStatus);\n'
+            '    PES13FexHeapFailure("syscall trampoline", Size);\n'
+            '  }')
     replace(name, '  CTX->InitCore();',
             '  PES13FexLog("[FEX3-SMC] v2 static game/D3D9 text entry guards; dynamic code keeps instruction guards");\n'
             '  PES13FexLog("[FEX3-MEM] v3 resident native L1; enabled L2 lazy commit<=64 KiB");\n'
@@ -214,7 +246,27 @@ def apply(source, project, output):
     # only L1 in that mode, with exactly the same lookup behavior as before.
     # If L2 is explicitly enabled, keep the full guest index, 16 MiB backing
     # and existing eviction/L3 fallback. Do not shrink guest address masks.
+    name = 'FEXCore/Source/Interface/Core/Core.cpp'
+    replace(name, '#include "horizon_host.h"', '#include "horizon_host.h"\n#include "horizon_jit_timing.h"')
+    replace(name, 'ContextImpl::CompileCodeResult ContextImpl::CompileCode(FEXCore::Core::InternalThreadState* Thread, uint64_t GuestRIP, uint64_t MaxInst) {',
+            'ContextImpl::CompileCodeResult ContextImpl::CompileCode(FEXCore::Core::InternalThreadState* Thread, uint64_t GuestRIP, uint64_t MaxInst) {\n'
+            '  PES13FexJitScope HorizonCompileTiming{1};')
+    replace(name, 'uintptr_t ContextImpl::CompileBlock(FEXCore::Core::CpuStateFrame* Frame, uint64_t GuestRIP, uint64_t MaxInst) {',
+            'uintptr_t ContextImpl::CompileBlock(FEXCore::Core::CpuStateFrame* Frame, uint64_t GuestRIP, uint64_t MaxInst) {\n'
+            '  PES13FexJitReportScope HorizonReport;\n'
+            '  PES13FexJitScope HorizonDispatchTiming{0};')
+    name = 'Source/Windows/Common/InvalidationTracker.cpp'
+    replace(name, '#include "horizon_host.h"', '#include "horizon_host.h"\n#include "horizon_jit_timing.h"')
+    replace(name, 'void InvalidationTracker::InvalidateIntervalInternalLocked(uint64_t Address, uint64_t Size) {',
+            'void InvalidationTracker::InvalidateIntervalInternalLocked(uint64_t Address, uint64_t Size) {\n'
+            '  PES13FexJitScope HorizonInvalidateTiming{2};')
+
     name = 'FEXCore/Source/Interface/Core/LookupCache.h'
+    # Disabled L2 uses a fully resident, zeroed 1 MiB native allocation.
+    # Dynamic sizing cannot return any of it to Horizon; starting at 128 KiB
+    # only adds collisions, clock calls and periodic clears on the hot path.
+    replace(name, 'if (HostPtr && DynamicL1Cache()) {',
+            'if (HostPtr && !DisableL2Cache() && DynamicL1Cache()) {')
     replace(name, '// Max out at 1 million entries to give each thread 16MB of L1 cache maximum.',
             '// Horizon: cap at 64K entries (1 MiB), retaining dynamic L1 growth.')
     replace(name, 'MAX_L1_ENTRIES = 1 * 1024 * 1024;', 'MAX_L1_ENTRIES = 64 * 1024;')
@@ -234,6 +286,8 @@ def apply(source, project, output):
     replace(name, 'FEXCore::Allocator::VirtualDontNeed(FirstZeroL1Entry, ZeroMemorySize, false);',
             'ClearLookupMemory(FirstZeroL1Entry, ZeroMemorySize);')
     name = 'FEXCore/Source/Interface/Core/LookupCache.cpp'
+    replace(name, '  if (DynamicL1Cache()) {',
+            '  if (!DisableL2Cache() && DynamicL1Cache()) {')
     include(name)
     replace(name, '#include "horizon_host.h"', '#include "horizon_host.h"\n#include <atomic>')
     replace(name, '  TotalCacheSize = ctx->Config.VirtualMemSize / FEXCore::Utils::FEX_PAGE_SIZE * 8 + CODE_SIZE + MAX_L1_SIZE;',
@@ -243,8 +297,8 @@ def apply(source, project, output):
             '  static std::atomic<bool> Reported {false};\n'
             '  if (!Reported.exchange(true, std::memory_order_relaxed))\n'
             '    PES13FexLog(DisableL2Cache()\n'
-            '      ? "[FEX3-LOOKUP] L2=off native=1 MiB/thread; no lazy commits"\n'
-            '      : "[FEX3-LOOKUP] L2=on full guest index; L2=16 MiB L1<=1 MiB");')
+            '      ? "[FEX3-LOOKUP] v2 dispatcher=L1-first L2=off native=1 MiB/thread; full resident L1"\n'
+            '      : "[FEX3-LOOKUP] v2 dispatcher=L1-first L2=on full guest index; L2=16 MiB L1<=1 MiB");')
     replace(name, '                                  ctx->Config.VirtualMemSize / FEXCore::Utils::FEX_PAGE_SIZE * 8 + CODE_SIZE);',
             '                                  IndexSize + BackingSize);')
     replace(name, '  PageMemory = PagePointer + ctx->Config.VirtualMemSize / FEXCore::Utils::FEX_PAGE_SIZE * 8;',
@@ -289,6 +343,28 @@ def apply(source, project, output):
     replace(name, '  // TODO: Rename this member to avoid confusion with code caching',
             '  AllocateOffset = 0;\n\n'
             '  // TODO: Rename this member to avoid confusion with code caching')
+
+    # Normal dispatcher entry (including Wine returns) didn't probe L1.
+    # With L2 disabled it always spilled registers and entered CompileBlock,
+    # even for an L1 hit. Keep the trap-flag check ahead of this fast path,
+    # use the same tag/mask contract as BranchOps, and preserve NZCV.
+    name = 'FEXCore/Source/Interface/Core/Dispatcher/Dispatcher.cpp'
+    replace(name, '  ARMEmitter::ForwardLabel NoBlock;\n', '''  ARMEmitter::ForwardLabel NoBlock;
+
+  // Horizon: the resident L1 also serves dispatcher re-entry. A miss still
+  // follows the upstream L2/L3 and compilation/invalidation path.
+  ARMEmitter::ForwardLabel HorizonL1Miss;
+  ldp<ARMEmitter::IndexType::OFFSET>(TMP1, TMP2, STATE, offsetof(FEXCore::Core::CpuStateFrame, State.L1Pointer));
+  and_(ARMEmitter::Size::i64Bit, TMP2, TMP2, RipReg.R(), ARMEmitter::ShiftType::LSL,
+       FEXCore::ilog2(sizeof(LookupCache::LookupCacheEntry)));
+  add(TMP1, TMP1, TMP2);
+  ldp<ARMEmitter::IndexType::OFFSET>(TMP4, TMP2, TMP1, 0);
+  sub(TMP2, TMP2, RipReg);
+  (void)cbnz(ARMEmitter::Size::i64Bit, TMP2, &HorizonL1Miss);
+  (void)cbz(ARMEmitter::Size::i64Bit, TMP4, &HorizonL1Miss);
+  br(TMP4);
+  (void)Bind(&HorizonL1Miss);
+''')
 
     # Wine's desktop path commits the complete reservation on first touch.
     # Horizon must commit only a bounded part of the tracked cache interval,
@@ -658,6 +734,8 @@ def apply(source, project, output):
     # patch manifest. This permits upgrades without resetting an entire tree.
     previous = {}
     for manifest in (Path(output), project / 'local/fex1/horizon-module/patches.json',
+                     project / 'local/fex3/macos-module/patches.json',
+                     project / 'local/fex3/stability-540p/module/patches.json',
                      project / 'local/fex2/module/patches.json',
                      project / 'local/fex3/smc-fix/module/patches.json',
                      project / 'local/fex3/memory-fix/module/patches.json',

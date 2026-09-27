@@ -333,6 +333,8 @@ class Model:
 
 
 def main():
+    if not __debug__:
+        raise RuntimeError('Unwind validation requires Python assertions; disable -O/-OO and PYTHONOPTIMIZE')
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('ntdll', type=Path)
     parser.add_argument('fex', type=Path)

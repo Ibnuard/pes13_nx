@@ -36,13 +36,41 @@ def main():
     parser.add_argument('--integration', action='store_true', help='Isolated FEX3 worker/exception and PES integration build')
     parser.add_argument('--runtime-fixes', action='store_true',
                         help='Opt-in FEX3 shader cache, waitable timer and affinity retry backports')
+    parser.add_argument('--diagnostic', action='store_true',
+                        help='Read-only one-second event timeline on the FEX3 control')
     parser.add_argument('--samecore-yield', action='store_true',
                         help='FEX3 experiment: Sleep(0) yields without core migration')
+    parser.add_argument('--resume-gate', action='store_true',
+                        help='FEX3 isolated self-suspend wakeups; leave global select routing unchanged')
+    parser.add_argument('--stability', action='store_true',
+                        help='FEX3 combined validated timer/cache/affinity and isolated resume fixes')
+    parser.add_argument('--hang-audit', action='store_true',
+                        help='Post-stability: no scaled readback, checked blit submission, earlier idle-worker captures')
+    parser.add_argument('--warm-audit', action='store_true',
+                        help='Post-hang-audit: defer routine FEX flushes; observe pipeline creation and driver cache')
+    parser.add_argument('--jit-latency', action='store_true',
+                        help='Post-warm-audit: 500-instruction JIT candidate; INI selects 5000 control')
     args = parser.parse_args()
+    if args.jit_latency and not args.warm_audit:
+        parser.error('--jit-latency requires --warm-audit')
+    if args.warm_audit and not args.hang_audit:
+        parser.error('--warm-audit requires --hang-audit')
+    if args.hang_audit and (not args.integration or not args.stability):
+        parser.error('--hang-audit requires --integration --stability')
+    if args.stability:
+        if not args.integration:
+            parser.error('--stability requires --integration')
+        args.runtime_fixes = args.resume_gate = args.diagnostic = True
+    if args.resume_gate and not args.integration:
+        parser.error('--resume-gate requires --integration')
+    if args.resume_gate and args.runtime_fixes and not args.stability:
+        parser.error('--resume-gate excludes --runtime-fixes')
     if args.samecore_yield and not args.integration:
         parser.error('--samecore-yield requires --integration')
     if args.runtime_fixes and not args.integration:
         parser.error('--runtime-fixes requires --integration')
+    if args.diagnostic and (not args.integration or (args.runtime_fixes and not args.stability)):
+        parser.error('--diagnostic requires --integration and excludes --runtime-fixes')
     root = args.build_root.resolve()
     toolchain = (args.toolchain.resolve() if args.toolchain else
                  root / 'toolchains/llvm-mingw-20260505-ucrt-ubuntu-22.04-x86_64')
@@ -61,7 +89,9 @@ def main():
         evidence = args.output_dir.resolve()
     evidence.mkdir(parents=True, exist_ok=True)
     patches = apply(work, project, integration=args.integration,
-                    samecore_yield=args.samecore_yield, runtime_fixes=args.runtime_fixes)
+                    samecore_yield=args.samecore_yield, runtime_fixes=args.runtime_fixes,
+                    diagnostic=args.diagnostic, resume_gate=args.resume_gate, stability=args.stability,
+                    hang_audit=args.hang_audit, warm_audit=args.warm_audit, jit_latency=args.jit_latency)
     (evidence / 'wine-patches.json').write_text(json.dumps(patches, indent=2) + '\n')
 
     devkit = Path('/opt/devkitpro')
@@ -121,6 +151,13 @@ def main():
     report = {'runtime': str(nro), 'nro_sha256': hashlib.sha256(nro.read_bytes()).hexdigest(),
               'toolchain_path': str(toolchain),
               'runtime_fixes': args.runtime_fixes,
+              'stability': args.stability,
+              'hang_audit': args.hang_audit,
+              'warm_audit': args.warm_audit,
+              'jit_latency': args.jit_latency,
+              'diagnostic': args.diagnostic,
+              'resume_gate': args.resume_gate,
+              'samecore_yield': args.samecore_yield,
               'native_dependencies': native_dependencies,
               'metadata': metadata, 'fex_guest_hardware_tested': False,
               'native_source': str(source), 'box64_engine_linked': False}
@@ -158,6 +195,27 @@ def main():
                                         for name in ('tools/fex_cache_patches.py',
                                                      'src/runtime/fex_cache_runtime.h',
                                                      'tools/fex_runtime_fixes.py')})
+    if args.diagnostic:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+                                        for name in ('src/runtime/fex_event_runtime.h',)})
+    if args.resume_gate:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+                                        for name in ('tools/fex_resume_patches.py',
+                                                     'src/runtime/fex_resume_runtime.h')})
+    if args.hang_audit:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+                                       for name in ('tools/fex_hang_patches.py',
+                                                    'src/runtime/fex_scaled_submit.h',
+                                                    'src/runtime/fex_hang_gate.h',
+                                                    'src/runtime/fex_hang_waiters.h')})
+    if args.warm_audit:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+                                       for name in ('tools/fex_warm_patches.py',
+                                                    'src/runtime/fex_warm_log.h',
+                                                    'src/runtime/fex_warm_runtime.h')})
+    if args.jit_latency:
+        report['patch_sources']['tools/fex_jit_latency_patches.py'] = hashlib.sha256(
+            (project / 'tools/fex_jit_latency_patches.py').read_bytes()).hexdigest()
     if not args.native_only:
         pe = work / 'pe-build'
         pe.mkdir(exist_ok=True)

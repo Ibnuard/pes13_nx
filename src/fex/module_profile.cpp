@@ -18,16 +18,23 @@ extern "C" void PES13FexApplyPerformanceProfile(void) {
     Set(CONFIG_MEMCPYSETTSOENABLED, fastest ? "0" : "1");
     Set(CONFIG_HALFBARRIERTSOENABLED, "1");
     Set(CONFIG_MULTIBLOCK, "1");
-    Set(CONFIG_MAXINST, "5000");
+    // The launcher can select a latency experiment through FEX's existing
+    // environment config. Keep the previous cap for every other value.
+    FEX_CONFIG_OPT(RequestedMaxInst, MAXINST);
+    const bool short_blocks = profile && RequestedMaxInst() == 500;
+    Set(CONFIG_MAXINST, short_blocks ? "500" : "5000");
+    PES13FexLog(short_blocks
+        ? "[FEX3-JIT-CONFIG] maxinst=500 multiblock=1; latency candidate"
+        : "[FEX3-JIT-CONFIG] maxinst=5000 multiblock=1; control");
     // Do not disable code invalidation, LOCK semantics, or enable CPU
     // instructions absent on Cortex-A57 just to label a profile "fast".
     Set(CONFIG_SMCCHECKS, "1"); // CONFIG_SMC_MTRACK
     static_assert(CONFIG_SMC_MTRACK == 1);
     PES13FexLog(fastest
-        ? "[FEX3-PRESET] fastest x87=64 scalar_tso=0 vector_tso=0 memcpy_tso=0 multiblock=1 maxinst=5000 smc=mtrack"
+        ? "[FEX3-PRESET] fastest x87=64 scalar_tso=0 vector_tso=0 memcpy_tso=0 multiblock=1 smc=mtrack"
         : profile == PES13_FEX_FAST_VECTOR
-        ? "[FEX3-PRESET] fast-vector x87=64 scalar_tso=1 vector_tso=0 memcpy_tso=1 multiblock=1 maxinst=5000 smc=mtrack"
+        ? "[FEX3-PRESET] fast-vector x87=64 scalar_tso=1 vector_tso=0 memcpy_tso=1 multiblock=1 smc=mtrack"
         : profile == PES13_FEX_FAST
-        ? "[FEX3-PRESET] fast x87=64 scalar_tso=1 vector_tso=1 memcpy_tso=1 multiblock=1 maxinst=5000 smc=mtrack"
+        ? "[FEX3-PRESET] fast x87=64 scalar_tso=1 vector_tso=1 memcpy_tso=1 multiblock=1 smc=mtrack"
         : "[FEX3-PRESET] control x87=80 scalar_tso=1 vector_tso=1 memcpy_tso=1 multiblock=1 maxinst=5000 smc=mtrack");
 }

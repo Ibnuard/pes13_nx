@@ -4,7 +4,26 @@ import hashlib
 import json
 
 
-def apply(work, project, integration=False, samecore_yield=False, runtime_fixes=False):
+def apply(work, project, integration=False, samecore_yield=False, runtime_fixes=False, diagnostic=False,
+          resume_gate=False, stability=False, hang_audit=False, warm_audit=False, jit_latency=False):
+    if jit_latency and not warm_audit:
+        raise ValueError('JIT latency requires warm audit')
+    if warm_audit and not hang_audit:
+        raise ValueError('warm audit requires hang audit')
+    if hang_audit and (not stability or not integration):
+        raise ValueError('hang audit requires the combined FEX3 stability runtime')
+    if stability:
+        if not integration:
+            raise ValueError('stability requires the isolated FEX3 runtime')
+        runtime_fixes = resume_gate = diagnostic = True
+    if resume_gate and not integration:
+        raise ValueError('resume gate requires the isolated FEX3 runtime')
+    if resume_gate and runtime_fixes and not stability:
+        raise ValueError('resume gate cannot combine with runtime fixes')
+    if diagnostic and not integration:
+        raise ValueError('diagnostic requires the isolated FEX3 runtime')
+    if diagnostic and runtime_fixes and not stability:
+        raise ValueError('diagnostic cannot combine with runtime fixes')
     if samecore_yield and not integration:
         raise ValueError('same-core yield requires the isolated FEX3 runtime')
     if runtime_fixes and not integration:
@@ -468,15 +487,37 @@ static int set_code_memory_perm( void *addr, void *source, size_t size, int prot
                 apply_pipeline(read, replace, project)
                 from fex_sync_patches import apply as apply_sync
                 apply_sync(read, replace, project)
+                if resume_gate:
+                    from fex_resume_patches import apply as apply_resume
+                    apply_resume(read, replace, project)
                 from fex_game_timing_patches import apply as apply_game_timing
                 apply_game_timing(read, replace, project)
+                if diagnostic:
+                    name = 'wine-nx-probe/source/runtime.c'
+                    replace(name, 'static void *log_flusher( void *arg )',
+                            (project / 'src/runtime/fex_event_runtime.h').read_text() +
+                            '\nstatic void *log_flusher( void *arg )')
+                    replace(name, '        if (ticks % 25 == 0) fex_game_timing_report();',
+                            '        if (ticks % 25 == 0) fex_game_timing_report();\n'
+                            '        if (ticks % 5 == 0) fex_event_report(ticks / 5);')
+                    replace(name, '"pes13-fex3-timing-audit"', '"pes13-fex3-event-diagnostic"')
                 if runtime_fixes:
                     from fex_cache_patches import apply as apply_cache
                     from fex_runtime_fixes import apply as apply_runtime_fixes
                     apply_cache(read, replace, project)
                     apply_runtime_fixes(read, replace, project)
                     replace('wine-nx-probe/source/runtime.c',
-                            '"pes13-fex3-timing-audit"', '"pes13-fex3-runtime-fixes"')
+                            '"pes13-fex3-event-diagnostic"' if diagnostic else '"pes13-fex3-timing-audit"',
+                            '"pes13-fex3-stability-540p"' if stability else '"pes13-fex3-runtime-fixes"')
+                if hang_audit:
+                    from fex_hang_patches import apply as apply_hang
+                    apply_hang(read, replace, project)
+                if warm_audit:
+                    from fex_warm_patches import apply as apply_warm
+                    apply_warm(read, replace, project)
+                if jit_latency:
+                    from fex_jit_latency_patches import apply as apply_jit_latency
+                    apply_jit_latency(read, replace, project)
                 for key in list(patched):
                     patched[key] = patched[key].replace('switch/pes13-fex2', 'switch/pes13-fex')
 

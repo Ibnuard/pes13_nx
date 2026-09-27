@@ -43,6 +43,8 @@ class Model(NativeModel):
         return [conditions.index(c) for c in self.signals],tuple(self.u64(router+i) for i in (24,32,40))
 
 def main():
+    if not __debug__:
+        raise RuntimeError('Sync validation requires Python assertions; disable -O/-OO and PYTHONOPTIMIZE')
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('elf',type=Path)
     p.add_argument('--output',required=True,type=Path);a=p.parse_args();m=Model(a.elf)
     assert m.run()==([0],(2,1,1))

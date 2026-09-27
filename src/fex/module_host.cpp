@@ -18,9 +18,21 @@ uint64_t CallHost(Callback callback, uint64_t arg0, uint64_t arg1 = 0);
 // JIT emission writes many short instructions into the same CodeMemory arena.
 // Crossing the PE/native callback for every write also scans native mapping
 // slots each time. Publish the matching RW alias once per allocation instead.
-// Zero = free, one = being published/retired, otherwise an RX base.
-struct CodeAlias { uintptr_t rx, rw; uint64_t size; };
+// Even sequence = stable, odd = writer owns this slot. A reader may be
+// scanning an unrelated mapping while another thread retires/reuses it.
+// Atomics on individual fields alone do not make that snapshot consistent.
+struct CodeAlias { uintptr_t rx, rw; uint64_t size, sequence; };
 CodeAlias CodeAliases[64] {};
+
+bool ClaimAlias(CodeAlias &entry, uintptr_t expected_rx) {
+    auto sequence = __atomic_load_n(&entry.sequence, __ATOMIC_ACQUIRE);
+    if ((sequence & 1) || __atomic_load_n(&entry.rx, __ATOMIC_RELAXED) != expected_rx ||
+        !__atomic_compare_exchange_n(&entry.sequence, &sequence, sequence + 1, false,
+                                      __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) return false;
+    if (__atomic_load_n(&entry.rx, __ATOMIC_RELAXED) == expected_rx) return true;
+    __atomic_fetch_add(&entry.sequence, 1, __ATOMIC_RELEASE);
+    return false;
+}
 
 void PublishCodeAlias(void *rx, uint64_t size) {
     if (!rx || !size || size > UINT64_MAX - 4095) return;
@@ -29,12 +41,11 @@ void PublishCodeAlias(void *rx, uint64_t size) {
         reinterpret_cast<uintptr_t>(rx), 1));
     if (!rw || rw == rx) return; // Native lookup remains the safe fallback.
     for (auto &entry : CodeAliases) {
-        uintptr_t empty = 0;
-        if (!__atomic_compare_exchange_n(&entry.rx, &empty, 1, false,
-                                         __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) continue;
+        if (!ClaimAlias(entry, 0)) continue;
         __atomic_store_n(&entry.rw, reinterpret_cast<uintptr_t>(rw), __ATOMIC_RELAXED);
         __atomic_store_n(&entry.size, size, __ATOMIC_RELAXED);
-        __atomic_store_n(&entry.rx, reinterpret_cast<uintptr_t>(rx), __ATOMIC_RELEASE);
+        __atomic_store_n(&entry.rx, reinterpret_cast<uintptr_t>(rx), __ATOMIC_RELAXED);
+        __atomic_fetch_add(&entry.sequence, 1, __ATOMIC_RELEASE);
         return;
     }
 }
@@ -42,9 +53,7 @@ void PublishCodeAlias(void *rx, uint64_t size) {
 CodeAlias *RetireCodeAlias(void *address) {
     const uintptr_t target = reinterpret_cast<uintptr_t>(address);
     for (auto &entry : CodeAliases) {
-        uintptr_t expected = target;
-        if (__atomic_compare_exchange_n(&entry.rx, &expected, 1, false,
-                                        __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) return &entry;
+        if (ClaimAlias(entry, target)) return &entry;
     }
     return nullptr;
 }
@@ -52,11 +61,15 @@ CodeAlias *RetireCodeAlias(void *address) {
 // Returns 1 for a complete mapping, -1 for a boundary crossing, 0 on a miss.
 int CachedAlias(const void *address, uint64_t length, void **result) {
     const uintptr_t target = reinterpret_cast<uintptr_t>(address);
+    if (length > UINTPTR_MAX - target) return -1;
     for (const auto &entry : CodeAliases) {
-        const uintptr_t rx = __atomic_load_n(&entry.rx, __ATOMIC_ACQUIRE);
-        if (rx <= 1) continue;
+        const uint64_t sequence = __atomic_load_n(&entry.sequence, __ATOMIC_ACQUIRE);
+        if (sequence & 1) continue; // Never spin in an exception handler.
+        const uintptr_t rx = __atomic_load_n(&entry.rx, __ATOMIC_RELAXED);
         const uint64_t size = __atomic_load_n(&entry.size, __ATOMIC_RELAXED);
         const uintptr_t rw = __atomic_load_n(&entry.rw, __ATOMIC_RELAXED);
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (__atomic_load_n(&entry.sequence, __ATOMIC_ACQUIRE) != sequence || !rx) continue;
         if (target >= rx && target - rx < size) {
             const uint64_t offset = target - rx;
             if (length > size - offset) return -1;
@@ -207,8 +220,11 @@ extern "C" int PES13FexReleaseCode(void *rx) {
     if (!Ready) Fail("[FEX-HOST] missing host before JIT release");
     CodeAlias *entry = RetireCodeAlias(rx);
     int result = static_cast<int>(CallHost(Host.release_code, reinterpret_cast<uintptr_t>(rx)));
-    if (entry) __atomic_store_n(&entry->rx, result == 0 ? reinterpret_cast<uintptr_t>(rx) : 0,
-                                __ATOMIC_RELEASE);
+    if (entry) {
+        __atomic_store_n(&entry->rx, result == 0 ? reinterpret_cast<uintptr_t>(rx) : 0,
+                         __ATOMIC_RELAXED);
+        __atomic_fetch_add(&entry->sequence, 1, __ATOMIC_RELEASE);
+    }
     if (result < 0) Fail("[FEX-HOST] executable release failed");
     return result;
 }

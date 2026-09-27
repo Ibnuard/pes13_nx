@@ -8,6 +8,8 @@ import json
 
 
 def main():
+    if not __debug__:
+        raise RuntimeError('Pipeline validation requires Python assertions; disable -O/-OO and PYTHONOPTIMIZE')
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('elf', type=Path)
     ap.add_argument('--output', required=True, type=Path)
