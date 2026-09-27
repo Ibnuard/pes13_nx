@@ -4,7 +4,7 @@ import argparse
 import hashlib
 import json
 import re
-from elftools.elf.elffile import ELFFile
+from typing import Any
 
 
 def summarize(path):
@@ -24,11 +24,13 @@ def summarize(path):
             delays.append(values)
         elif line.startswith('[FEX3-SELF-WAIT]'):
             self_waits.append(values)
-    totals = {k: sum(v[k] for v in sync) for k in (
+    totals: dict[str, Any] = {k: sum(v[k] for v in sync) for k in (
         'notices', 'candidates', 'notified', 'filtered', 'sleeps')} if sync else {}
     if totals:
         assert totals['candidates'] == totals['notified'] + totals['filtered']
-        totals['filtered_percent'] = round(100 * totals['filtered'] / totals['candidates'], 2)
+        totals['filtered_percent'] = (
+            round(100 * totals['filtered'] / totals['candidates'], 2)
+            if totals['candidates'] else None)
     return {
         'sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw),
         'build': re.search(r'^\[BUILD\] (.+)$', text, re.M)[1].strip(),
@@ -49,6 +51,8 @@ def main():
     ap.add_argument('--elf', type=Path, required=True)
     ap.add_argument('--output', type=Path, required=True)
     a = ap.parse_args()
+    from elftools.elf.elffile import ELFFile
+
     current, text = summarize(a.log)
     previous, _ = summarize(a.previous)
     with a.elf.open('rb') as f:

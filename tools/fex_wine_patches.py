@@ -4,9 +4,11 @@ import hashlib
 import json
 
 
-def apply(work, project, integration=False, samecore_yield=False):
+def apply(work, project, integration=False, samecore_yield=False, runtime_fixes=False):
     if samecore_yield and not integration:
         raise ValueError('same-core yield requires the isolated FEX3 runtime')
+    if runtime_fixes and not integration:
+        raise ValueError('runtime fixes require the isolated FEX3 runtime')
     report = {}
     for kind in ('native-source', 'pe-source'):
         source = work / kind
@@ -468,6 +470,13 @@ static int set_code_memory_perm( void *addr, void *source, size_t size, int prot
                 apply_sync(read, replace, project)
                 from fex_game_timing_patches import apply as apply_game_timing
                 apply_game_timing(read, replace, project)
+                if runtime_fixes:
+                    from fex_cache_patches import apply as apply_cache
+                    from fex_runtime_fixes import apply as apply_runtime_fixes
+                    apply_cache(read, replace, project)
+                    apply_runtime_fixes(read, replace, project)
+                    replace('wine-nx-probe/source/runtime.c',
+                            '"pes13-fex3-timing-audit"', '"pes13-fex3-runtime-fixes"')
                 for key in list(patched):
                     patched[key] = patched[key].replace('switch/pes13-fex2', 'switch/pes13-fex')
 

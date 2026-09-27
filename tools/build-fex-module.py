@@ -1,4 +1,4 @@
-"""Build the pinned ARM64 PE WOW64 FEX module in an isolated WSL tree."""
+"""Build the pinned ARM64 PE WOW64 FEX module using a host-native cross-toolchain."""
 from pathlib import Path
 import argparse
 import hashlib
@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+from fex_toolchain import cmake_provenance
 
 FEX_COMMIT = 'e2f973fe931e6dc2ce523795e51ca1ac3ca85816'
 TOOLCHAIN = 'llvm-mingw-20260505-ucrt-ubuntu-22.04-x86_64'
@@ -23,6 +24,8 @@ def main():
     parser.add_argument('--jobs', type=int, default=int(os.environ.get('PES_JOBS', 4)))
     parser.add_argument('--horizon', action='store_true', help='Build the experimental dual-mapping module in a separate tree')
     parser.add_argument('--output-dir', type=Path, help='Separate evidence/output directory for integration builds')
+    parser.add_argument('--toolchain', type=Path,
+                        help='LLVM-MinGW root (containing bin); use the build host variant')
     args = parser.parse_args()
     root = args.build_root.resolve()
     source = root / ('fex-experiment/source-horizon' if args.horizon else 'fex-experiment/source')
@@ -30,9 +33,11 @@ def main():
     output = project / ('local/fex1/horizon-module' if args.horizon else 'local/fex1/module')
     if args.output_dir:
         output = args.output_dir.resolve()
-    tc = root / 'toolchains' / TOOLCHAIN / 'bin'
-    if not (tc / 'aarch64-w64-mingw32-clang').exists():
+    toolchain = args.toolchain.resolve() if args.toolchain else root / 'toolchains' / TOOLCHAIN
+    tc = toolchain / 'bin'
+    if not (tc / 'aarch64-w64-mingw32-clang').is_file():
         raise SystemExit(f'Missing LLVM-MinGW toolchain: {tc}')
+    cmake_provenance(build, toolchain)
     env = dict(os.environ, PATH=str(tc) + os.pathsep + os.environ['PATH'])
 
     def run(command, **kw):
@@ -95,7 +100,8 @@ def main():
         dest = notices / license_file.relative_to(source)
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(license_file, dest)
-    report = {'fex_commit': FEX_COMMIT, 'toolchain': TOOLCHAIN,
+    report = {'fex_commit': FEX_COMMIT, 'toolchain': toolchain.name,
+              'toolchain_path': str(toolchain),
               'dll': str(dll), 'sha256': hashlib.sha256(dll.read_bytes()).hexdigest(),
               'bytes': dll.stat().st_size, 'horizon_adapter': args.horizon, 'hardware_tested': False,
               'ready_for_game': False}

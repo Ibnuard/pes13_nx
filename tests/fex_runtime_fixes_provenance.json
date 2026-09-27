@@ -1,0 +1,121 @@
+{
+  "repository": "https://github.com/autorunhq/autorun",
+  "pin": "1bc4e45163f0d2328cdfd35c7f471dd9821bb879",
+  "source": "dlls/ntdll/unix/horizon.c",
+  "source_sha256": "0bb075b095be19436281420cecf44f2dc47be05120981450bed2d7e7272ace2c",
+  "slice_file": "fex_runtime_fixes_pinned.c",
+  "slice_sha256": "edf8490abd4612ed4517cf3f74015ce5103625819298f998d22f82be73300983",
+  "slices": [
+    {
+      "name": "horizon_server_current_tid",
+      "first_line": 4858,
+      "last_line": 4861
+    },
+    {
+      "name": "horizon_server_object_is_signaled",
+      "first_line": 4863,
+      "last_line": 4894
+    },
+    {
+      "name": "horizon_server_consume_signal",
+      "first_line": 4897,
+      "last_line": 4920
+    },
+    {
+      "name": "horizon_server_signal_object_locked",
+      "first_line": 5006,
+      "last_line": 5039
+    },
+    {
+      "name": "horizon_server_handle_event_op",
+      "first_line": 10763,
+      "last_line": 10802
+    },
+    {
+      "name": "horizon_server_handle_release_mutex",
+      "first_line": 11083,
+      "last_line": 11102
+    },
+    {
+      "name": "horizon_server_handle_release_semaphore",
+      "first_line": 11161,
+      "last_line": 11188
+    },
+    {
+      "name": "horizon_server_handle_set_timer",
+      "first_line": 11259,
+      "last_line": 11282
+    },
+    {
+      "name": "horizon_server_handle_cancel_timer",
+      "first_line": 11284,
+      "last_line": 11305
+    },
+    {
+      "name": "horizon_server_handle_get_timer_info",
+      "first_line": 11307,
+      "last_line": 11327
+    },
+    {
+      "name": "horizon_server_handle_polls_locked",
+      "first_line": 11419,
+      "last_line": 11426
+    },
+    {
+      "name": "horizon_server_select_polls_locked",
+      "first_line": 11430,
+      "last_line": 11465
+    },
+    {
+      "name": "horizon_server_handle_select",
+      "first_line": 11467,
+      "last_line": 11517
+    },
+    {
+      "name": "lowest_set_core",
+      "first_line": 2927,
+      "last_line": 2935
+    },
+    {
+      "name": "horizon_server_follow_client",
+      "first_line": 9135,
+      "last_line": 9144
+    },
+    {
+      "name": "horizon_server_signal_changed_locked",
+      "first_line": 2737,
+      "last_line": 2740
+    },
+    {
+      "name": "horizon_server_sleep_locked",
+      "first_line": 2744,
+      "last_line": 2753
+    },
+    {
+      "name": "horizon_server_wait_object_locked",
+      "first_line": 5043,
+      "last_line": 5061
+    },
+    {
+      "name": "horizon_server_select_wait",
+      "first_line": 11329,
+      "last_line": 11369
+    },
+    {
+      "name": "horizon_server_select_signal_and_wait",
+      "first_line": 11371,
+      "last_line": 11382
+    },
+    {
+      "name": "horizon_server_select_status",
+      "first_line": 11384,
+      "last_line": 11417
+    }
+  ],
+  "timer_commit": "51f94949d738c978bfb80a5118d7ffa4cf6b98ae",
+  "timer_patch_file": "fex_runtime_fixes_upstream.patch",
+  "timer_patch_sha256": "4c224e73a0627eb8ad11b8dc69df787240436ccad7f3adb91bd08f2983f87649",
+  "cancel_contract": "https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-cancelwaitabletimer",
+  "cancel_contract_quote": "The CancelWaitableTimer function does not change the signaled state of the timer.",
+  "scope": "Host source-slice tests; kernel and transport mocked. No hardware causality claim."
+}

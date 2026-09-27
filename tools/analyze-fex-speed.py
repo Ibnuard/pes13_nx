@@ -4,35 +4,57 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 
 def analyze(data):
     text = data.decode(errors='replace')
     windows = []
+    present_observations = []
     progress_seconds = None
     threads = None
+    threads_source_line = threads_progress_seconds = None
     current = None
-    for line in text.splitlines():
+    for source_line, line in enumerate(text.splitlines(), 1):
+        present = re.match(
+            r'\[NXVK\] present (\d+): result (-?\d+), swapchain (\d+)x(\d+), '
+            r'hwnd (0x[0-9a-fA-F]+) client \((-?\d+),(-?\d+)\)-\((-?\d+),(-?\d+)\)', line)
+        if present:
+            present_observations.append({
+                'source_line': source_line, 'present': int(present[1]),
+                'result': int(present[2]), 'swapchain': [int(present[3]), int(present[4])],
+                'hwnd': present[5], 'client_rect': [int(present[i]) for i in range(6, 10)],
+            })
         if match := re.match(r'\[PROGRESS\] (\d+)s ', line):
             progress_seconds = int(match[1])
         if line.startswith('[THREADS] '):
             threads = line
+            threads_source_line = source_line
+            threads_progress_seconds = progress_seconds
         if line.startswith('[FEX3-PACE] elapsed_ms='):
-            row = {k: int(v) for k, v in re.findall(r'(\w+)=(\d+)', line)}
+            row: dict[str, Any] = {k: int(v) for k, v in re.findall(r'(\w+)=(\d+)', line)}
             row['host_presents_per_second'] = (
                 round(row['ok'] * 1000 / row['window_ms'], 3) if row['window_ms'] else None)
+            row['source_line'] = source_line
             row['progress_seconds'] = progress_seconds
             row['threads'] = threads
+            row['threads_source_line'] = threads_source_line
+            row['threads_progress_seconds'] = threads_progress_seconds
             row['stages'] = {}
             row['delays'] = []
             windows.append(row)
             current = row
         elif current is not None:
             if match := re.match(r'\[FEX3-(?:PACE|PIPE)\] (\w+) n=', line):
-                current['stages'][match[1]] = {
+                stage: dict[str, Any] = {
                     k: int(v) for k, v in re.findall(r'(\w+)=(\d+)', line)
                     if k != 'bins'
                 }
+                stage['source_line'] = source_line
+                bins = re.search(r'\bbins=([0-9,]+)', line)
+                if bins:
+                    stage['bins'] = [int(v) for v in bins[1].split(',')]
+                current['stages'][match[1]] = stage
             elif line.startswith('[FEX3-DELAY] tid='):
                 current['delays'].append({k: int(v) for k, v in re.findall(r'(\w+)=(\d+)', line)})
     last = [row for row in windows
@@ -54,6 +76,7 @@ def analyze(data):
                 sum(row['window_ms'] for row in last), 3) if last else None,
         },
         'windows': windows,
+        'present_observations': present_observations,
         'limitations': [
             'Presents are host API calls, not unique displayed frames or simulation ticks.',
             'There is no in-game scoreboard measurement or OC-change marker in this log.',
