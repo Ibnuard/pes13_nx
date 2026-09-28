@@ -1,5 +1,29 @@
 # PES13-NX icon
 
+## FEXTendo v2
+
+The v2 launcher uses generated `fextendo-v2/stadium.png`, `gamepad-flat.png`
+and `wordmark.png`, plus the user-supplied `logo.png` and `icon.png`.
+Prompts and provenance are in `fextendo-v2/GENERATION.md`. Color scrims,
+rounded corners, glossy animation and footer blur are rendered in C.
+
+Controller sprites come from the user-supplied `Solid Duo/Dark theme/`
+set. Rights remain with their creators, independently of code/font licenses.
+V2 uses Inter under SIL OFL 1.1; font and license are in `fonts/Inter/`.
+The earlier v1 assets and Barlow attribution are retained below.
+
+The Fextendo launcher uses the user-supplied `PES13WP.jpg` wallpaper,
+`logo.png`, and `icon.png` (the same image on both menu tiles). These are
+separate from the older generated NRO icon below. Their original files are
+preserved; `tools/build-fextendo-assets.py` fits them to the native UI buffers.
+
+The launcher uses Barlow Regular and SemiBold from
+[Google Fonts](https://github.com/google/fonts/tree/main/ofl/barlow), copyright
+2017 The Barlow Project Authors, under SIL OFL 1.1. The font files and complete
+license are in `fonts/`; the build generates a glyph atlas for the C renderer.
+
+## Existing NRO icon
+
 `icon-source.png` was created with the built-in image generation tool.
 `icon.jpg` is the 256x256, 24-bit baseline JPEG used by elf2nro (quality 92).
 The resize and JPEG encoding used Windows System.Drawing; the generated design

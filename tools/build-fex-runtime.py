@@ -58,7 +58,28 @@ def main():
                         help='Queue JIT timing reports for the existing logger, avoiding game-thread SD writes')
     parser.add_argument('--yield-burst', action='store_true',
                         help='Brief backoff only after dense ineffective yields; keep ordinary waits intact')
+    parser.add_argument('--yield-adaptive', action='store_true',
+                        help='Shorten sustained polling bursts after inexpensive pauses; cool down after oversleep')
+    parser.add_argument('--stable-balance', action='store_true',
+                        help='Preserve placement; move at most one worker per balance pass')
+    parser.add_argument('--gap-audit', action='store_true',
+                        help='Bounded present-thread CPU/wall timing and optional disk-cache environment')
+    parser.add_argument('--launcher', action='store_true',help='Fextendo console launcher and preset selector')
+    parser.add_argument('--memory-audit', action='store_true',help='Time native memory-budget queries on the launcher baseline')
+    parser.add_argument('--memory-budget-filter', action='store_true',help='Decline costly optional memory-budget queries on Switch')
     args = parser.parse_args()
+    if args.memory_budget_filter and not args.memory_audit:
+        parser.error('--memory-budget-filter requires --memory-audit')
+    if args.memory_audit and not args.launcher:
+        parser.error('--memory-audit requires --launcher')
+    if args.launcher and not args.gap_audit:
+        parser.error('--launcher requires --gap-audit')
+    if args.gap_audit and not args.stable_balance:
+        parser.error('--gap-audit requires --stable-balance')
+    if args.stable_balance and (not args.yield_burst or args.yield_adaptive):
+        parser.error('--stable-balance requires --yield-burst and excludes --yield-adaptive')
+    if args.yield_adaptive and not args.yield_burst:
+        parser.error('--yield-adaptive requires --yield-burst')
     if args.yield_burst and (not args.jit_log_queue or not args.samecore_yield):
         parser.error('--yield-burst requires --jit-log-queue --samecore-yield')
     if args.jit_log_queue and not args.worker_cores:
@@ -109,7 +130,9 @@ def main():
                     diagnostic=args.diagnostic, resume_gate=args.resume_gate, stability=args.stability,
                     hang_audit=args.hang_audit, warm_audit=args.warm_audit, jit_latency=args.jit_latency,
                     sleep_deadline=args.sleep_deadline, worker_cores=args.worker_cores,
-                    jit_log_queue=args.jit_log_queue, yield_burst=args.yield_burst)
+                    jit_log_queue=args.jit_log_queue, yield_burst=args.yield_burst,
+                    yield_adaptive=args.yield_adaptive, stable_balance=args.stable_balance, gap_audit=args.gap_audit, launcher=args.launcher,
+                    memory_audit=args.memory_audit, memory_budget_filter=args.memory_budget_filter)
     (evidence / 'wine-patches.json').write_text(json.dumps(patches, indent=2) + '\n')
 
     devkit = Path('/opt/devkitpro')
@@ -154,6 +177,7 @@ def main():
         raise RuntimeError('Native dependencies changed during build')
     name = 'pes13-fex' if args.integration else 'pes13-fex2'
     title = 'PES13-NX FEX3' if args.integration else 'PES13 FEX2 x86 Test'
+    if args.launcher: title = 'Fextendo / PES13'
     version = '0.3.0' if args.integration else '0.2.0'
     nacp, nro = work / (name + '.nacp'), work / (name + '.nro')
     run([devkit / 'tools/bin/nacptool', '--create', title,
@@ -177,6 +201,12 @@ def main():
               'worker_cores': args.worker_cores,
               'jit_log_queue': args.jit_log_queue,
               'yield_burst': args.yield_burst,
+              'yield_adaptive': args.yield_adaptive,
+              'stable_balance': args.stable_balance,
+              'gap_audit': args.gap_audit,
+              'launcher': args.launcher,
+              'memory_audit': args.memory_audit,
+              'memory_budget_filter': args.memory_budget_filter,
               'diagnostic': args.diagnostic,
               'resume_gate': args.resume_gate,
               'samecore_yield': args.samecore_yield,
@@ -255,6 +285,29 @@ def main():
                                        for name in ('tools/fex_yield_burst_patches.py',
                                                     'src/runtime/fex_yield_burst.h',
                                                     'src/runtime/fex_yield_runtime.h')})
+    if args.gap_audit:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+                                       for name in ('tools/fex_gap_probe_patches.py', 'src/runtime/fex_gap_probe.h')})
+    if args.launcher:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+                                       for name in ('tools/fextendo_launcher_patches.py','src/runtime/fextendo_presets.h',
+                                                    'src/runtime/fextendo_ui.h','src/runtime/fextendo_launcher.h',
+                                                    'src/runtime/fextendo_timestamp_pixels.h','src/runtime/fextendo_timestamp.h')})
+    if args.memory_audit:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+                                       for name in ('tools/fex_memory_probe_patches.py', 'src/runtime/fex_memory_probe.h')})
+    if args.memory_budget_filter:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+                                       for name in ('tools/fex_memory_budget_patches.py', 'src/runtime/fex_memory_budget.h')})
+    if args.stable_balance:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+                                       for name in ('tools/fex_balance_stable_patches.py',
+                                                    'src/runtime/fex_balance_stable.h')})
+    if args.yield_adaptive:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+                                       for name in ('tools/fex_yield_adaptive_patches.py',
+                                                    'src/runtime/fex_yield_adaptive.h',
+                                                    'src/runtime/fex_yield_adaptive_runtime.h')})
     if not args.native_only:
         pe = work / 'pe-build'
         pe.mkdir(exist_ok=True)

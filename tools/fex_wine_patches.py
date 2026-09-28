@@ -6,7 +6,20 @@ import json
 
 def apply(work, project, integration=False, samecore_yield=False, runtime_fixes=False, diagnostic=False,
           resume_gate=False, stability=False, hang_audit=False, warm_audit=False, jit_latency=False, sleep_deadline=False,
-          worker_cores=False, jit_log_queue=False, yield_burst=False):
+          worker_cores=False, jit_log_queue=False, yield_burst=False, yield_adaptive=False, stable_balance=False, gap_audit=False, launcher=False,
+          memory_audit=False, memory_budget_filter=False):
+    if memory_budget_filter and not memory_audit:
+        raise ValueError('Memory budget filter requires memory audit baseline')
+    if memory_audit and not launcher:
+        raise ValueError('Memory audit requires launcher baseline')
+    if launcher and not gap_audit:
+        raise ValueError('Launcher requires gap audit baseline')
+    if gap_audit and not stable_balance:
+        raise ValueError('Gap audit requires stable balance baseline')
+    if stable_balance and (not yield_burst or yield_adaptive):
+        raise ValueError('Stable balance requires yield burst and excludes adaptive yield')
+    if yield_adaptive and not yield_burst:
+        raise ValueError('Adaptive yield requires yield burst baseline')
     if yield_burst and (not jit_log_queue or not samecore_yield):
         raise ValueError('Yield burst requires JIT log queue and same-core yield baseline')
     if jit_log_queue and not worker_cores:
@@ -539,6 +552,24 @@ static int set_code_memory_perm( void *addr, void *source, size_t size, int prot
                 if yield_burst:
                     from fex_yield_burst_patches import apply as apply_yield_burst
                     apply_yield_burst(read, replace, project)
+                if yield_adaptive:
+                    from fex_yield_adaptive_patches import apply as apply_yield_adaptive
+                    apply_yield_adaptive(read, replace, project)
+                if stable_balance:
+                    from fex_balance_stable_patches import apply as apply_stable_balance
+                    apply_stable_balance(read, replace, project)
+                if gap_audit:
+                    from fex_gap_probe_patches import apply as apply_gap_audit
+                    apply_gap_audit(read, replace, project)
+                if launcher:
+                    from fextendo_launcher_patches import apply as apply_launcher
+                    apply_launcher(read, replace, project)
+                if memory_audit:
+                    from fex_memory_probe_patches import apply as apply_memory_audit
+                    apply_memory_audit(read, replace, project)
+                if memory_budget_filter:
+                    from fex_memory_budget_patches import apply as apply_memory_budget_filter
+                    apply_memory_budget_filter(read, replace, project)
                 for key in list(patched):
                     patched[key] = patched[key].replace('switch/pes13-fex2', 'switch/pes13-fex')
 

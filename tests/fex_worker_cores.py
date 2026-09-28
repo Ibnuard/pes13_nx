@@ -49,9 +49,11 @@ class Model(NativeModel):
 
     def hook(self, vm, pc, size, user):
         s = self.symbols
-        # armGetSystemTick is inlined by devkitA64 in wine_nx_thread_balance.
-        if bytes(vm.mem_read(pc, 4)) == bytes.fromhex('20e03bd5'):
-            vm.reg_write(reg(0), self.now)
+        # armGetSystemTick is inlined; register allocation varies across builds.
+        instruction = int.from_bytes(vm.mem_read(pc, 4), 'little')
+        if instruction & ~31 == 0xd53be020:  # mrs Xt, cntpct_el0
+            if instruction & 31 != 31:
+                vm.reg_write(reg(instruction & 31), self.now)
             vm.reg_write(arm.UC_ARM64_REG_PC, pc+4)
         elif pc == s.get('svcGetInfo'):
             out, kind, handle = [vm.reg_read(reg(i)) for i in range(3)]

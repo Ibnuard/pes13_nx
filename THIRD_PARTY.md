@@ -41,5 +41,20 @@ integration test includes that DLL, matched Wine modules and their license
 notices, plus notices from FEX's retained dependencies. Its x86 smoke program
 is original MIT-licensed test code, not a game executable.
 
-Game code, assets, installation metadata and saved games belong to their
-respective owners and are not part of this source repository or runtime ZIP.
+Fextendo's new native launcher uses Barlow Regular and SemiBold, copyright
+2017 The Barlow Project Authors, under SIL Open Font License 1.1. Source:
+[Google Fonts / Barlow](https://github.com/google/fonts/tree/main/ofl/barlow).
+The full notice is in `assets/fonts/OFL.txt` and `licenses/Barlow-OFL.txt` in
+the Fextendo package. The native launcher does not enter Wine-NX's SDL menu.
+
+The Fextendo experimental package includes the launcher artwork supplied by
+the user (`PES13WP.jpg`, `logo.png`, and `icon.png`); rights remain with their
+respective owners. Game executables, match data and saved games are not
+included. The font and source-code licenses do not license the PES artwork.
+
+FEXTendo v2 uses Inter (The Inter Project Authors) under SIL OFL 1.1:
+`assets/fonts/Inter/OFL.txt`, packaged as `licenses/Inter-OFL.txt`.
+The user-supplied Solid Duo controller sprites retain their original rights;
+they are not covered by the source-code or font licenses. V2's generated
+stadium, flat gamepad and FEXTendo wordmark have provenance and prompts in
+`assets/fextendo-v2/GENERATION.md`.
