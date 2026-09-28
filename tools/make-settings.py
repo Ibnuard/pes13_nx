@@ -8,7 +8,8 @@ SIZE = 0x354
 MAGIC = 0x46434557
 VERSION = 2
 XINPUT = 0x200
-PRODUCTION_FLAGS = 0x028B
+# PRODUCTION_FLAGS: 0x0289 (VSync enabled, Frame Skipping disabled, XInput enabled)
+PRODUCTION_FLAGS = 0x0289
 SUPPORTED_SETTINGS_SHA256 = "761eb6873dafc3fc7cec27b82eff66e36e7ec99b87af5e024a8b535edc52c705"
 
 
@@ -58,8 +59,10 @@ def main():
     # User-tested Settings.exe preset: XInput plus the matching display flags.
     struct.pack_into("<H", data, 0x0e, PRODUCTION_FLAGS)
     struct.pack_into("<II", data, 0x10, args.width, args.height)
-    struct.pack_into("<I", data, 0x18, 1)  # user-tested display profile
-    struct.pack_into("<I", data, 0x1c, 0)  # display 0
+    # Preserve the user-tested display words. Retail field semantics are not
+    # verified; 0x18 is an aspect candidate, not a proven quality setting.
+    struct.pack_into("<I", data, 0x18, 1)
+    struct.pack_into("<I", data, 0x1c, 0)
     struct.pack_into("<I", data, 0x20, 1)
     struct.pack_into("<I", data, 0x28, 0x166b)
     struct.pack_into("<I", data, 0x4c, 0x1000)

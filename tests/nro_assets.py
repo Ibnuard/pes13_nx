@@ -5,13 +5,15 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from nro_assets import inspect_nro
+from nro_assets import inspect_nro, PACKAGE_VERSION
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('old', type=Path)
 parser.add_argument('new', type=Path)
 parser.add_argument('icon', type=Path)
 parser.add_argument('--metadata-only', action='store_true', help='Also require identical executable sections')
+parser.add_argument('--title', default='PES13-NX')
+parser.add_argument('--version', default=PACKAGE_VERSION)
 args = parser.parse_args()
 old = args.old.read_bytes()
 new = args.new.read_bytes()
@@ -20,7 +22,7 @@ icon = args.icon.read_bytes()
 
 def rejected(blob, message):
     try:
-        inspect_nro(blob)
+        inspect_nro(blob, expected_title=args.title, expected_version=args.version)
     except ValueError as error:
         assert message in str(error), str(error)
     else:
@@ -28,7 +30,7 @@ def rejected(blob, message):
 
 
 rejected(old, 'Missing embedded icon')
-info = inspect_nro(new, icon)
+info = inspect_nro(new, icon, expected_title=args.title, expected_version=args.version)
 asset_start = struct.unpack_from('<I', new, 0x18)[0]
 old_code_size = struct.unpack_from('<I', old, 0x18)[0]
 if args.metadata_only:

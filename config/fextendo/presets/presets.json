@@ -1,0 +1,34 @@
+{
+  "medium-720": {
+    "width": 1280,
+    "height": 720,
+    "vsync": true,
+    "quality_word": 1,
+    "quality_mapping_verified": false,
+    "sha256": "8569f01e5458b6cc7721f3ed937dde71284a37c60273f3ba58bedbe8c1908708"
+  },
+  "low-720": {
+    "width": 1280,
+    "height": 720,
+    "vsync": true,
+    "quality_word": 0,
+    "quality_mapping_verified": false,
+    "sha256": "98e8d826f51f2c09f0db41746ab428d8d551e2e148e0432dc884336be4b01c31"
+  },
+  "extra-low-540": {
+    "width": 960,
+    "height": 540,
+    "vsync": true,
+    "quality_word": 0,
+    "quality_mapping_verified": false,
+    "sha256": "27d5560b968bf82b769aa178daef30ea3b1980942de078cabef04bfaab5612d0"
+  },
+  "high-720": {
+    "width": 1280,
+    "height": 720,
+    "vsync": true,
+    "quality_word": 2,
+    "quality_mapping_verified": false,
+    "sha256": "c6abf93588e342d2d8b2651818b4f87c3ec9ec37332f2d5a66411a81f68924cb"
+  }
+}

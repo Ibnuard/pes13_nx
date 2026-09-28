@@ -1,8 +1,10 @@
 # Local game, installation data, diagnostics and upstream build caches.
+.DS_Store
 /local/
 /dist/
 /.cache/
 /build/
+/TEST RESULT/
 __pycache__/
 *.pyc
 *.log
