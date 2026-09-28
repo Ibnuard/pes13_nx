@@ -78,6 +78,14 @@ static int fx_menu_sound_save(const char *root,int on) {
     char p[768];snprintf(p,sizeof(p),"%s/launcher/menu-sound.txt",root);
     return fx_write(p,on?"1\n":"0\n",2);
 }
+static int fx_background_music(const char *root) {
+    char p[768],b[2];snprintf(p,sizeof(p),"%s/launcher/background-music.txt",root);
+    return fx_read(p,b,2)!=2||b[0]!='0'||b[1]!='\n';
+}
+static int fx_background_music_save(const char *root,int on) {
+    char p[768];snprintf(p,sizeof(p),"%s/launcher/background-music.txt",root);
+    return fx_write(p,on?"1\n":"0\n",2);
+}
 static uint64_t fx_last_played(const char *root) {
     char path[768],text[32];snprintf(path,sizeof(path),"%s/launcher/last-played.txt",root);
     size_t n=fx_read(path,text,sizeof(text));uint64_t value=0;

@@ -5,6 +5,8 @@
 #include <time.h>
 #include <stdlib.h>
 #include <stdarg.h>
+static int mode;
+#define FX_SPLASH_MS (mode>=5?2400:0)
 #include "../src/runtime/fextendo_presets.h"
 #include "../src/runtime/fextendo_ui.h"
 typedef uint64_t u64;typedef uint32_t u32;typedef int Result;
@@ -29,7 +31,7 @@ typedef struct {int unused;} ErrorApplicationConfig;
 #define HidNpadButton_L 2048
 #define HidNpadButton_R 4096
 #define HidNpadButton_Y 8192
-static const char *test_root,*test_target;static int mode,created,closed,errors;
+static const char *test_root,*test_target;static int created,closed,errors;
 #define RUNTIME_DIR test_root
 #define DEFAULT_TARGET test_target
 static u64 armGetSystemTick(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (u64)t.tv_sec*1000000000+t.tv_nsec;}
@@ -48,23 +50,31 @@ static void framebufferClose(Framebuffer *f){assert(pthread_equal(f->owner,pthre
 static void padConfigureInput(int a,int b){(void)a;(void)b;}
 static void padInitializeDefault(PadState *p){p->index=-1;}
 static void trace_view(int frame);
+static unsigned splash_seen;static int credits_seen,changelog_seen;
 static void padUpdate(PadState *p){p->index++;trace_view(p->index);}
 static u64 padGetButtonsDown(PadState *p){
+    if(mode==4){
+        static const u64 input[]={HidNpadButton_Right,0,HidNpadButton_Right,HidNpadButton_A,HidNpadButton_R,HidNpadButton_L,HidNpadButton_B,HidNpadButton_Plus};
+        return p->index<8?input[p->index]:0;
+    }
+    if(mode==5)return p->index==2?HidNpadButton_A:p->index==8?HidNpadButton_Plus:0;
+    if(mode==6)return splash_seen&&p->index>155?HidNpadButton_Plus:0;
     if(mode==3){
-        static const u64 input[]={HidNpadButton_Right,HidNpadButton_A,HidNpadButton_Up,0,HidNpadButton_Up,HidNpadButton_A,HidNpadButton_B,0,HidNpadButton_Plus};
-        return p->index<9?input[p->index]:0;
+        static const u64 input[]={HidNpadButton_Right,HidNpadButton_A,HidNpadButton_Up,0,HidNpadButton_Up,0,HidNpadButton_Up,HidNpadButton_A,HidNpadButton_B,0,HidNpadButton_Plus};
+        return p->index<11?input[p->index]:0;
     }
     if(mode==1)return p->index==0?HidNpadButton_Plus:0;
     if(mode==2)return p->index==0||p->index==2?HidNpadButton_A:p->index==4?HidNpadButton_Plus:0;
     return p->index==0?HidNpadButton_A:0;
 }
-static u64 padGetButtons(PadState *p){return padGetButtonsDown(p);}
+static u64 padGetButtons(PadState *p){if(mode==5&&p->index>=2&&p->index<6)return HidNpadButton_A;return padGetButtonsDown(p);}
 static int errorApplicationCreate(ErrorApplicationConfig *c,const char *a,const char *b){(void)c;(void)a;(void)b;return 0;}
 static void errorApplicationShow(ErrorApplicationConfig *c){(void)c;errors++;}
 static void log_line(const char *f,...){(void)f;}
 enum fx_cue {FX_NAV,FX_CONFIRM,FX_BACK,FX_ERROR};
 static int sound_open,battery_open;
-static void fx_sfx_init(void){assert(!sound_open);sound_open=1;}
+static void fx_sfx_init(const char *root){(void)root;assert(!sound_open);sound_open=1;}
+static void fx_music_set(int enabled){(void)enabled;}
 static void fx_sfx_close(void){sound_open=0;}
 static void fx_sfx_play(enum fx_cue cue,int enabled){(void)cue;(void)enabled;}
 typedef int PsmChargerType;
@@ -75,14 +85,20 @@ static int psmGetBatteryChargePercentage(u32 *n){*n=82;return 0;}
 static int psmGetChargerType(PsmChargerType *t){*t=0;return 0;}
 static void fx_timestamp_start(void){}
 static void fx_timestamp_arm(int on,uint64_t t){(void)on;(void)t;}
-#define FX_SPLASH_MS 0 /* Dedicated screenshot test covers splash; navigation starts ready. */
 #include "../src/runtime/fextendo_launcher.h"
-static void trace_view(int frame){if(frame<4)fprintf(stderr,"frame=%d screen=%d selected=%d message=%s\n",frame,fx_ui_view.screen,fx_ui_view.selected,fx_ui_view.message?fx_ui_view.message:"none");}
+static void trace_view(int frame){
+    if(fx_ui_view.splash_ms>splash_seen)splash_seen=fx_ui_view.splash_ms;
+    if(fx_ui_view.screen==FX_CREDITS){credits_seen=1;if(fx_ui_view.credit_page)changelog_seen=1;}
+    if(mode>=5&&frame>5)assert(!fx_boot_started);
+}
+
 int main(int argc,char **argv){
     assert(argc==4);test_root=argv[1];test_target=argv[2];mode=atoi(argv[3]);
     if(mode==3)assert(fx_apply_preset(test_root,0));
     if(mode){assert(!fx_launcher_start());assert(!fx_owned());assert(closed==1);assert(!fx_ui_created);
-        if(mode==3){assert(fx_ui_view.timestamp);assert(fx_debug_timestamp(test_root));assert(fx_ui_view.screen==FX_HOME);}}
+        if(mode==3){assert(fx_ui_view.timestamp);assert(fx_debug_timestamp(test_root));assert(fx_ui_view.screen==FX_HOME);}
+        if(mode==4){assert(credits_seen&&changelog_seen);assert(fx_ui_view.screen==FX_HOME&&fx_ui_view.tile==2);assert(!fx_boot_started);}
+        if(mode>=5){assert(splash_seen>2000);assert(!fx_ui_view.splash_ms);assert(!fx_boot_started);}}
     else{
         assert(fx_launcher_start());assert(!sound_open);assert(fx_owned());assert(!closed);assert(fx_boot_started);
         fx_stage("Testing loading handoff...");assert(fx_handoff());assert(!fx_owned());assert(closed==1);assert(!fx_ui_created);

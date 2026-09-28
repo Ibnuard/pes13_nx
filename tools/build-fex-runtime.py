@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 from fex2_prepare import prepare
@@ -177,9 +178,11 @@ def main():
         raise RuntimeError('Native dependencies changed during build')
     name = 'pes13-fex' if args.integration else 'pes13-fex2'
     title = 'PES13-NX FEX3' if args.integration else 'PES13 FEX2 x86 Test'
-    if args.launcher: title = 'FEXTendo / PES13'
+    if args.launcher: title = 'PES13 - FEXTendo'
     version = '0.3.0' if args.integration else '0.2.0'
-    if args.launcher: version = '0.3.2'
+    if args.launcher:
+        version = re.search(r'^#define FX_APP_VERSION "([0-9.]+)"',
+                            (project/'src/runtime/fextendo_ui.h').read_text(), re.M).group(1)
     nacp, nro = work / (name + '.nacp'), work / (name + '.nro')
     run([devkit / 'tools/bin/nacptool', '--create', title,
          'AndroSwitch Project' if args.launcher else 'PES13-NX / Wine / FEX-Emu', version, nacp])
@@ -293,9 +296,9 @@ def main():
     if args.launcher:
         report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
                                        for name in ('tools/fextendo_launcher_patches.py','src/runtime/fextendo_presets.h',
-                                                    'src/runtime/fextendo_ui.h','src/runtime/fextendo_launcher.h',
+                                                    'src/runtime/fextendo_ui.h','src/runtime/fextendo_launcher.h','src/runtime/fextendo_logs.h',
                                                     'src/runtime/fextendo_timestamp_pixels.h','src/runtime/fextendo_timestamp.h',
-                                                    'src/runtime/fextendo_overlay_layer.h','src/runtime/fextendo_sfx.h')})
+                                                    'src/runtime/fextendo_overlay_layer.h','src/runtime/fextendo_display.h','src/runtime/fextendo_sfx.h')})
     if args.memory_audit:
         report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
                                        for name in ('tools/fex_memory_probe_patches.py', 'src/runtime/fex_memory_probe.h')})

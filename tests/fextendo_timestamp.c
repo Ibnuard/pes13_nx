@@ -11,7 +11,7 @@
 #include "../src/runtime/fextendo_presets.h"
 typedef uint64_t u64;typedef uint32_t u32;typedef int32_t s32;typedef int Result;
 typedef struct {char data[64];} ViDisplayName;
-typedef struct {int initialized;ViDisplayName display_name;} ViDisplay;
+typedef struct {int initialized;ViDisplayName display_name;u64 display_id;} ViDisplay;
 typedef struct {int initialized;u64 layer_id;u32 igbp_binder_obj_id;} ViLayer;
 typedef struct {pthread_t owner;} NWindow;
 typedef struct {pthread_t owner;} Framebuffer;
@@ -31,11 +31,12 @@ typedef int Service;typedef int ViLayerFlags;
 #define AppletFocusState_InFocus 1
 static const char *test_root;
 #define RUNTIME_DIR test_root
+static u64 appletGetAppletResourceUserId(void){return 0x12345678;}
 static u64 __nx_vi_layer_id=7; /* supplied game layer must never be touched */
 static unsigned step,fail_at,display_open,managed_open,layer_open,window_open,fb_open;
 static unsigned frames,focus_skips,stack_mask;
 static u64 ticks=1000000000;
-static int focus=1,null_frame,manager=1,bad_parcel;
+static int focus=1,null_frame,manager=1,bad_parcel,borrow_display;
 static uint32_t pixels[32][240];
 static char messages[16384];
 static int next(void){return ++step==fail_at?42:0;}
@@ -55,11 +56,16 @@ static void log_line(const char *fmt,...){
     if(used<sizeof(messages)-1)vsnprintf(messages+used,sizeof(messages)-used,fmt,ap);va_end(ap);
 }
 static int viOpenDefaultDisplay(ViDisplay *d){int rc=next();if(!rc){d->initialized=1;display_open++;}return rc;}
+static int fx_overlay_display_open(ViDisplay *d,int *borrowed){
+    *borrowed=borrow_display;
+    if(*borrowed){d->initialized=1;d->display_id=55;return 0;}
+    return viOpenDefaultDisplay(d);
+}
 static int viCreateManagedLayer(const ViDisplay *d,ViLayerFlags flags,u64 aruid,u64 *id){
-    assert(d->initialized&&!flags&&!aruid);int rc=next();if(!rc){*id=99;managed_open++;}return rc;
+    assert(d->initialized&&!flags&&aruid==appletGetAppletResourceUserId());int rc=next();if(!rc){*id=99;managed_open++;}return rc;
 }
 static int fake_open(Service *s,int cmd,u64 id,u64 aruid,u64 *size,unsigned char *raw){
-    assert(*s&&cmd==2020&&id==99&&!aruid);int rc=next();if(rc)return rc;
+    assert(*s&&cmd==2020&&id==99&&aruid==appletGetAppletResourceUserId());int rc=next();if(rc)return rc;
     uint32_t hdr[4]={12,16,0,0},binder=37;memcpy(raw,hdr,16);memcpy(raw+24,&binder,4);
     *size=bad_parcel?27:28;layer_open++;return 0;
 }
@@ -99,6 +105,7 @@ int main(int argc,char **argv){
     null_frame=1;fx_timestamp_main(NULL);unsigned setup_steps=step;assert(stack_mask==15);clean();
     assert(fx_timestamp_font_ready);
     for(fail_at=1;fail_at<=setup_steps;fail_at++){step=0;fx_timestamp_main(NULL);assert(step>=fail_at);clean();}
+    fail_at=0;borrow_display=1;fx_timestamp_main(NULL);clean();borrow_display=0;
     fail_at=0;manager=0;fx_timestamp_main(NULL);clean();manager=1;
     bad_parcel=1;fx_timestamp_main(NULL);clean();bad_parcel=0;
     unsigned char raw[32]={0};uint32_t binder;

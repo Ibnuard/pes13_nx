@@ -76,3 +76,11 @@ The user-supplied Solid Duo controller sprites retain their original rights;
 they are not covered by the source-code or font licenses. V2's generated
 stadium, flat gamepad and FEXTendo wordmark have provenance and prompts in
 `assets/fextendo-v2/GENERATION.md`.
+
+FEXTendo v3.2 adds independently synthesized mallet-style cues and an original
+16-second ambient loop, with no third-party audio samples or tracks. Its flat
+Settings/Credits images were generated for this project; the exact prompts and
+method are in [assets/fextendo-v3.2/GENERATION.md](assets/fextendo-v3.2/GENERATION.md).
+The new default-display capture uses libnx as a linked dependency and the
+[libnx default-window lifecycle](https://github.com/switchbrew/libnx/blob/master/nx/source/display/default_window.c)
+as a reference. It borrows the application display and preserves libnx ownership.

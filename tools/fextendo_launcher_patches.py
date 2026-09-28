@@ -2,9 +2,15 @@
 
 def apply(read,replace,project):
     name='wine-nx-probe/source/runtime.c'
-    headers=('fextendo_presets.h','fextendo_ui.h','fextendo_timestamp_pixels.h','fextendo_overlay_layer.h','fextendo_timestamp.h','fextendo_sfx.h','fextendo_launcher.h')
+    headers=('fextendo_logs.h','fextendo_presets.h','fextendo_ui.h','fextendo_timestamp_pixels.h','fextendo_overlay_layer.h','fextendo_display.h','fextendo_timestamp.h','fextendo_sfx.h','fextendo_launcher.h')
     body='\n'.join((project/'src/runtime'/p).read_text() for p in headers)
     replace(name,'static void log_line(const char *fmt, ...);','static void log_line(const char *fmt, ...);\n'+body)
+    replace(name,'    log_file = fopen( RUNTIME_DIR "/fex-runtime.log", "w" );',
+            '    int rotation_error = 0;\n    log_file = fx_open_log(RUNTIME_DIR, &rotation_error);')
+    replace(name,'        setvbuf( log_file, log_file_buffer, _IOFBF, sizeof(log_file_buffer) );',
+            '        setvbuf( log_file, log_file_buffer, _IOFBF, sizeof(log_file_buffer) );\n'
+            '        fprintf(log_file, "[FEXTENDO] session_start version=%s release=%s phase=launcher rotation_errno=%d; previous runs: fex-runtime.previous-1.log through previous-4.log\\n", FX_APP_VERSION, FX_RELEASE, rotation_error);\n'
+            '        fflush(log_file);')
     replace(name,'static int wine_nx_console_active = 1;','static int wine_nx_console_active = 0;')
     replace(name,'    consoleInit( NULL );','    /* Fextendo owns the initial display; debug output remains in the log. */')
     anchor='    const int guest_tests = wine_nx_config_file_bool(RUNTIME_DIR "/run-guest-tests.txt", 1);'
@@ -32,3 +38,6 @@ def apply(read,replace,project):
     replace(name,'    status = map_pe_image( target, &module, &view_size );',
             '    fx_stage("Starting PES13...");\n    status = map_pe_image( target, &module, &view_size );')
     replace(name,'"pes13-fex3-gap-audit"','"pes13-fextendo-v1"')
+    replace('wine-nx-probe/CMakeLists.txt',
+            'target_link_options(wine-nx-runtime PRIVATE -Wl,--gc-sections)',
+            'target_link_options(wine-nx-runtime PRIVATE -Wl,--gc-sections -Wl,--wrap=viOpenDisplay)')

@@ -7,13 +7,14 @@ int main(int argc,char **argv) {
     assert(argc==3);assert(fx_art_load(&art,argv[1]));
     uint32_t *buffer=calloc(1296*720,4);assert(buffer);
     struct fx_canvas c={buffer,1296,&art};
-    for(i=0;i<10;i++){
+    for(i=0;i<13;i++){
         v.screen=i<2?FX_HOME:i<4?FX_SETTINGS:i==4?FX_LOADING:FX_FAILED;
         v.tile=i==1;v.tile_mix=v.tile;v.sound=1;v.battery=82;v.wall_time=1800000000;v.last_played=v.wall_time-7200;v.row=i==3?3:0;v.selected=0;v.frame=32;v.saved=i==3;
         v.fatal=i==6;v.message=i==4?"Loading game files...":"Could not save the preset. Check the SD card.";
         if(i==7){v.screen=FX_HOME;v.frame=65;}
         if(i==8){v.screen=FX_SETTINGS;v.row=4;v.timestamp=1;}
         v.splash_ms=i==9?600:0;
+        if(i>=10){v.screen=i==10?FX_HOME:FX_CREDITS;v.tile=2;v.tile_mix=2;v.credit_page=i==12;}
         v.settings_scroll=fx_settings_scroll_target(v.row);
         fx_render(&c,&v);
         snprintf(path,sizeof(path),"%s/screen-%d.ppm",argv[2],i);FILE *f=fopen(path,"wb");assert(f);
@@ -28,13 +29,13 @@ int main(int argc,char **argv) {
     v.screen=FX_HOME;v.splash_ms=0;v.tile=0;v.tile_mix=0;v.frame=0;fx_render(&c,&v);
     memcpy(snapshot,buffer,1296*720*4);v.frame=140;fx_render(&c,&v);
     unsigned active_changed=0;
-    for(y=230;y<530;y++)for(x=978;x<1248;x++)assert(snapshot[y*1296+x]==buffer[y*1296+x]);
+    for(y=230;y<530;y++)for(x=915;x<1248;x++)assert(snapshot[y*1296+x]==buffer[y*1296+x]);
     for(y=538;y<622;y++)for(x=60;x<340;x++)active_changed+=snapshot[y*1296+x]!=buffer[y*1296+x];
     assert(active_changed>100);
     v.tile=1;v.tile_mix=1;v.frame=0;fx_render(&c,&v);memcpy(snapshot,buffer,1296*720*4);
     v.frame=140;fx_render(&c,&v);
     for(y=538;y<622;y++)for(x=60;x<340;x++)assert(snapshot[y*1296+x]==buffer[y*1296+x]);
-    for(y=230;y<530;y++)for(x=696;x<946;x++)assert(snapshot[y*1296+x]==buffer[y*1296+x]);
+    for(y=230;y<530;y++)for(x=645;x<855;x++)assert(snapshot[y*1296+x]==buffer[y*1296+x]);
     /* Loading ignores menu/stage text; only the small spinner animates. */
     v.screen=FX_LOADING;v.frame=0;fx_render(&c,&v);memcpy(snapshot,buffer,1296*720*4);
     v.frame=20;v.tile=0;v.message="New startup stage";fx_render(&c,&v);active_changed=0;
@@ -42,14 +43,24 @@ int main(int argc,char **argv) {
         if(x>=618&&x<=662&&y>=440&&y<=484)active_changed+=snapshot[y*1296+x]!=buffer[y*1296+x];
         else assert(snapshot[y*1296+x]==buffer[y*1296+x]);
     }
-    assert(active_changed>10);free(snapshot);
+    assert(active_changed>10);
+    /* Splash really moves/reveals, instead of delaying a static bitmap. */
+    v.screen=FX_HOME;v.splash_ms=FX_SPLASH_MS-100;fx_render(&c,&v);memcpy(snapshot,buffer,1296*720*4);
+    v.splash_ms=FX_SPLASH_MS-900;fx_render(&c,&v);active_changed=0;
+    for(y=240;y<470;y++)for(x=330;x<950;x++)active_changed+=snapshot[y*1296+x]!=buffer[y*1296+x];
+    assert(active_changed>1000);
+    v.splash_ms=0;v.screen=FX_CREDITS;v.credit_page=0;fx_render(&c,&v);memcpy(snapshot,buffer,1296*720*4);
+    v.credit_page=1;fx_render(&c,&v);active_changed=0;
+    for(y=100;y<625;y++)for(x=400;x<1220;x++)active_changed+=snapshot[y*1296+x]!=buffer[y*1296+x];
+    assert(active_changed>1000);free(snapshot);
     struct fx_light orbit=fx_orbit(240,58,29,0),cycle=fx_orbit(240,58,29,360);
     assert(orbit.x==cycle.x&&orbit.y==cycle.y);
     /* Interrupted focus changes must remain continuous and converge in time. */
     v.tile_mix=0;v.tile=1;fx_motion_step(&v,33);float first=v.tile_mix;
     assert(first>0&&first<1);v.tile=0;fx_motion_step(&v,33);assert(v.tile_mix<first&&v.tile_mix>0);
     v.tile=1;for(i=0;i<20;i++)fx_motion_step(&v,33);assert(v.tile_mix==1);
-    for(int row=0;row<6;row++){
+    v.tile=2;for(i=0;i<25;i++)fx_motion_step(&v,33);assert(v.tile_mix==2);
+    for(int row=0;row<7;row++){
         v.row=row;for(i=0;i<25;i++)fx_motion_step(&v,33);
         assert(v.settings_scroll==fx_settings_scroll_target(row));
         float top=row*116-v.settings_scroll;
@@ -80,6 +91,8 @@ int main(int argc,char **argv) {
     assert(!fx_apply_preset(argv[1],-1));assert(!fx_apply_preset(argv[1],4));
     assert(fx_menu_sound(argv[1]));assert(fx_menu_sound_save(argv[1],0));assert(!fx_menu_sound(argv[1]));
     assert(fx_menu_sound_save(argv[1],1));assert(fx_menu_sound(argv[1]));
+    assert(fx_background_music(argv[1]));assert(fx_background_music_save(argv[1],0));assert(!fx_background_music(argv[1]));
+    assert(fx_background_music_save(argv[1],1));assert(fx_background_music(argv[1]));
     assert(!fx_last_played(argv[1]));assert(fx_last_played_save(argv[1],1800000000));assert(fx_last_played(argv[1])==1800000000);
     char relative[48];
     fx_last_played_label(relative,0,1800000000);assert(!strcmp(relative,"Never"));
