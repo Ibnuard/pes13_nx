@@ -13,32 +13,34 @@
 #define FX_MUTED FX_COLOR(170,185,208)
 #define FX_BLUE FX_COLOR(51,194,255)
 enum fx_screen { FX_HOME,FX_SETTINGS,FX_LOADING,FX_FAILED };
-struct fx_view { enum fx_screen screen;int tile,row,selected,saved,fatal,timestamp;unsigned frame;const char *message; };
-struct fx_art { uint32_t *bg,*logo,*icon,*buttons,*gamepad,*wordmark;unsigned char *font;size_t font_size; };
-struct fx_canvas { uint32_t *pixels;int stride;const struct fx_art *art; };
+struct fx_view { enum fx_screen screen;int tile,row,selected,saved,fatal,timestamp,sound,battery,charging;float tile_mix,settings_scroll;unsigned frame,splash_ms;uint64_t last_played,wall_time;const char *message; };
+struct fx_art { uint32_t *bg,*blur,*logo,*icon,*buttons,*gamepad,*wordmark,*scene[4],*tiles[49];unsigned char gear[7][71*71];uint16_t spinner[43*43];float decay[4097];unsigned char *font;size_t font_size; };
+struct fx_canvas { uint32_t *pixels;int stride;const struct fx_art *art;int clip_top,clip_bottom; };
+static int fx_prepare_art(struct fx_art *a);
 static void *fx_asset_read(const char *path,size_t expected) {
     void *p=malloc(expected);if(!p)return NULL;
     if(fx_read(path,p,expected)!=expected){free(p);return NULL;}return p;
 }
-static void fx_art_free(struct fx_art *a) {free(a->bg);free(a->logo);free(a->icon);free(a->buttons);free(a->gamepad);free(a->wordmark);free(a->font);memset(a,0,sizeof(*a));}
+static void fx_art_free(struct fx_art *a) {for(int i=0;i<4;i++)free(a->scene[i]);for(int i=0;i<49;i++)free(a->tiles[i]);free(a->bg);free(a->blur);free(a->logo);free(a->icon);free(a->buttons);free(a->gamepad);free(a->wordmark);free(a->font);memset(a,0,sizeof(*a));}
 static int fx_art_load(struct fx_art *a,const char *root) {
     char p[768];struct stat st;unsigned i;memset(a,0,sizeof(*a));
     snprintf(p,sizeof(p),"%s/launcher/background.rgba",root);a->bg=fx_asset_read(p,FX_W*FX_H*4);
+    snprintf(p,sizeof(p),"%s/launcher/blur.rgba",root);a->blur=fx_asset_read(p,FX_W*FX_H*4);
     snprintf(p,sizeof(p),"%s/launcher/logo.rgba",root);a->logo=fx_asset_read(p,480*158*4);
-    snprintf(p,sizeof(p),"%s/launcher/icon.rgba",root);a->icon=fx_asset_read(p,238*238*4);
-    snprintf(p,sizeof(p),"%s/launcher/buttons.rgba",root);a->buttons=fx_asset_read(p,7*40*40*4);
-    snprintf(p,sizeof(p),"%s/launcher/gamepad.rgba",root);a->gamepad=fx_asset_read(p,64*48*4);
-    snprintf(p,sizeof(p),"%s/launcher/wordmark.rgba",root);a->wordmark=fx_asset_read(p,300*64*4);
+    snprintf(p,sizeof(p),"%s/launcher/icon.rgba",root);a->icon=fx_asset_read(p,256*256*4);
+    snprintf(p,sizeof(p),"%s/launcher/buttons.rgba",root);a->buttons=fx_asset_read(p,7*80*80*4);
+    snprintf(p,sizeof(p),"%s/launcher/gamepad.rgba",root);a->gamepad=fx_asset_read(p,128*96*4);
+    snprintf(p,sizeof(p),"%s/launcher/wordmark.rgba",root);a->wordmark=fx_asset_read(p,600*128*4);
     snprintf(p,sizeof(p),"%s/launcher/font.bin",root);
-    if(stat(p,&st)||st.st_size<4568||st.st_size>1024*1024)goto fail;
+    if(stat(p,&st)||st.st_size<6088||st.st_size>1024*1024)goto fail;
     a->font_size=st.st_size;a->font=fx_asset_read(p,a->font_size);
-    if(!a->font||memcmp(a->font,"FXF1",4)||fx_u32(a->font+4)!=a->font_size-4568)goto fail;
-    for(i=0;i<285;i++){
+    if(!a->font||memcmp(a->font,"FXF2",4)||fx_u32(a->font+4)!=a->font_size-6088)goto fail;
+    for(i=0;i<380;i++){
         const unsigned char *g=a->font+8+i*16;
         unsigned w=g[8]|g[9]<<8,h=g[10]|g[11]<<8;
-        if(w>96||h>96||fx_u32(g)>a->font_size-4568||w*h>a->font_size-4568-fx_u32(g))goto fail;
+        if(w>96||h>96||fx_u32(g)>a->font_size-6088||w*h>a->font_size-6088-fx_u32(g))goto fail;
     }
-    if(a->bg&&a->logo&&a->icon&&a->buttons&&a->gamepad&&a->wordmark)return 1;
+    if(a->bg&&a->blur&&a->logo&&a->icon&&a->buttons&&a->gamepad&&a->wordmark&&fx_prepare_art(a))return 1;
 fail:fx_art_free(a);return 0;
 }
 static uint32_t fx_blend(uint32_t dst,uint32_t src,unsigned a) {
@@ -49,6 +51,7 @@ static uint32_t fx_blend(uint32_t dst,uint32_t src,unsigned a) {
 }
 static void fx_rect(struct fx_canvas *c,int x,int y,int w,int h,uint32_t color,unsigned alpha) {
     int right=x+w,bottom=y+h,xx,yy;if(x<0)x=0;if(y<0)y=0;if(right>FX_W)right=FX_W;if(bottom>FX_H)bottom=FX_H;
+    if(c->clip_bottom){if(y<c->clip_top)y=c->clip_top;if(bottom>c->clip_bottom)bottom=c->clip_bottom;}
     for(yy=y;yy<bottom;yy++)for(xx=x;xx<right;xx++){
         uint32_t *p=c->pixels+yy*c->stride+xx;*p=alpha==255?color:fx_blend(*p,color,alpha);}
 }
@@ -57,16 +60,16 @@ static int fx_text_width(const struct fx_art *a,const char *s,int font) {
         const unsigned char *g=a->font+8+(font*95+n-32)*16;w+=g[12]|g[13]<<8;}return w;
 }
 static void fx_text(struct fx_canvas *c,int x,int y,const char *s,int font,uint32_t color) {
-    static const int heights[3]={20,26,40};
+    static const int heights[4]={20,26,40,14};
     for(;*s;s++){
         unsigned n=(unsigned char)*s;if(n<32||n>126)n='?';
         const unsigned char *g=c->art->font+8+(font*95+n-32)*16;
         int bx=(int16_t)(g[4]|g[5]<<8),by=(int16_t)(g[6]|g[7]<<8);
         int w=g[8]|g[9]<<8,h=g[10]|g[11]<<8,xx,yy;
-        const unsigned char *mask=c->art->font+4568+fx_u32(g);
+        const unsigned char *mask=c->art->font+6088+fx_u32(g);
         for(yy=0;yy<h;yy++)for(xx=0;xx<w;xx++){
             int dx=x+bx+xx,dy=y+heights[font]+by+yy;
-            if(dx>=0&&dx<FX_W&&dy>=0&&dy<FX_H&&mask[yy*w+xx]){
+            if(dx>=0&&dx<FX_W&&dy>=0&&dy<FX_H&&(!c->clip_bottom||(dy>=c->clip_top&&dy<c->clip_bottom))&&mask[yy*w+xx]){
                 uint32_t *p=c->pixels+dy*c->stride+dx;*p=fx_blend(*p,color,mask[yy*w+xx]);}}
         x+=g[12]|g[13]<<8;
     }
@@ -74,31 +77,63 @@ static void fx_text(struct fx_canvas *c,int x,int y,const char *s,int font,uint3
 static void fx_center(struct fx_canvas *c,int x,int y,const char *s,int font,uint32_t color) {
     fx_text(c,x-fx_text_width(c->art,s,font)/2,y,s,font,color);
 }
-static void fx_circle(struct fx_canvas *c,int x,int y,int r,uint32_t col) {
-    int yy;for(yy=-r;yy<=r;yy++){int dx=(int)sqrt((double)(r*r-yy*yy));fx_rect(c,x-dx,y+yy,dx*2+1,1,col,255);}
+/* Analytic coverage at the pixel center: all curves have a one-pixel AA fringe. */
+static float fx_clamp(float x,float lo,float hi) {return fmaxf(lo,fminf(hi,x));}
+static float fx_round_distance(float x,float y,float w,float h,float r) {
+    float qx=fabsf(x-w*.5f)-(w*.5f-r),qy=fabsf(y-h*.5f)-(h*.5f-r);
+    if(qx<=0||qy<=0)return fmaxf(qx,qy)-r;
+    return hypotf(qx,qy)-r;
 }
-/* Rounded scanlines keep all writes clipped through fx_rect/fx_image. */
-static int fx_inset(int row,int h,int radius) {
-    int dy=row<radius?radius-row-1:row>=h-radius?row-(h-radius):0;
-    return dy?(int)ceil(radius-sqrt((double)radius*radius-(double)dy*dy)):0;
+static void fx_put(struct fx_canvas *c,int x,int y,uint32_t color,unsigned a) {
+    if(x>=0&&x<FX_W&&y>=0&&y<FX_H&&(!c->clip_bottom||(y>=c->clip_top&&y<c->clip_bottom))&&a){uint32_t *d=c->pixels+y*c->stride+x;*d=fx_blend(*d,color,a);}
+}
+static void fx_circle(struct fx_canvas *c,int x,int y,int r,uint32_t col) {
+    for(int yy=-r;yy<=r;yy++)for(int xx=-r;xx<=r;xx++)
+        fx_put(c,x+xx,y+yy,col,(unsigned)(255*fx_clamp(r+.5f-hypotf(xx,yy),0,1)));
 }
 static void fx_round(struct fx_canvas *c,int x,int y,int w,int h,int r,uint32_t col,unsigned a) {
-    if(r>h/2)r=h/2;
-    if(r>w/2)r=w/2;
-    for(int yy=0;yy<h;yy++){int n=fx_inset(yy,h,r);fx_rect(c,x+n,y+yy,w-2*n,1,col,a);}
+    r=(int)fminf(r,fminf(w,h)*.5f);
+    fx_rect(c,x+r,y,w-2*r,h,col,a);
+    fx_rect(c,x,y+r,r,h-2*r,col,a);fx_rect(c,x+w-r,y+r,r,h-2*r,col,a);
+    for(int yy=0;yy<r;yy++)for(int xx=0;xx<r;xx++){
+        float d=hypotf(r-xx-.5f,r-yy-.5f)-r;
+        unsigned alpha=(unsigned)(a*fx_clamp(.5f-d,0,1));
+        fx_put(c,x+xx,y+yy,col,alpha);fx_put(c,x+w-1-xx,y+yy,col,alpha);
+        fx_put(c,x+xx,y+h-1-yy,col,alpha);fx_put(c,x+w-1-xx,y+h-1-yy,col,alpha);
+    }
 }
+/* Premultiplied bilinear sampling avoids both nearest-neighbour steps and
+ * dark fringes at the transparent edges of generated artwork. */
 static void fx_image(struct fx_canvas *c,const uint32_t *src,int sw,int sh,int x,int y,int w,int h,int r,unsigned opacity) {
+    if(w<=0||h<=0)return;
     for(int yy=0;yy<h;yy++){
-        int n=fx_inset(yy,h,r),dy=y+yy;if(dy<0||dy>=FX_H)continue;
-        for(int xx=n;xx<w-n;xx++){
+        int dy=y+yy;if(dy<0||dy>=FX_H)continue;
+        float sy=fx_clamp((yy+.5f)*sh/h-.5f,0,sh-1);int y0=(int)sy,y1=y0+1<sh?y0+1:y0;float ty=sy-y0;
+        for(int xx=0;xx<w;xx++){
             int dx=x+xx;if(dx<0||dx>=FX_W)continue;
-            uint32_t s=src[(yy*sh/h)*sw+xx*sw/w],*d=c->pixels+dy*c->stride+dx;
-            *d=fx_blend(*d,s,(s>>24)*opacity/255);
+            float cover=r?fx_clamp(.5f-fx_round_distance(xx+.5f,yy+.5f,w,h,r),0,1):1;
+            if(!cover)continue;
+            float sx=fx_clamp((xx+.5f)*sw/w-.5f,0,sw-1);int x0=(int)sx,x1=x0+1<sw?x0+1:x0;float tx=sx-x0;
+            uint32_t p[4]={src[y0*sw+x0],src[y0*sw+x1],src[y1*sw+x0],src[y1*sw+x1]};
+            float weight[4]={(1-tx)*(1-ty),tx*(1-ty),(1-tx)*ty,tx*ty},a=0,red=0,g=0,b=0;
+            for(int i=0;i<4;i++){float k=(p[i]>>24)*weight[i];a+=k;red+=(p[i]&255)*k;g+=((p[i]>>8)&255)*k;b+=((p[i]>>16)&255)*k;}
+            if(a>.01f)fx_put(c,dx,dy,FX_COLOR((unsigned)(red/a+.5f),(unsigned)(g/a+.5f),(unsigned)(b/a+.5f)),(unsigned)(a*opacity/255*cover+.5f));
         }
     }
 }
 static void fx_sprite(struct fx_canvas *c,int id,int x,int y,int size) {
-    fx_image(c,c->art->buttons+id*1600,40,40,x,y,size,size,0,255);
+    fx_image(c,c->art->buttons+id*6400,80,80,x,y,size,size,0,255);
+}
+/* Six roomy rows with three fully visible at rest; keep the focused row fully visible. */
+#define FX_SETTINGS_MAX_SCROLL 348.f
+static float fx_settings_scroll_target(int row) {return fx_clamp(row-2.f,0,3)*116.f;}
+static void fx_motion_step(struct fx_view *v,float ms) {
+    float target=v->tile?1.f:0.f;
+    v->tile_mix=target+(v->tile_mix-target)*expf(-fx_clamp(ms,0,100)/65.f);
+    if(fabsf(v->tile_mix-target)<.001f)v->tile_mix=target;
+    target=fx_settings_scroll_target(v->row);
+    v->settings_scroll=target+(v->settings_scroll-target)*expf(-fx_clamp(ms,0,100)/65.f);
+    if(fabsf(v->settings_scroll-target)<.1f)v->settings_scroll=target;
 }
 static void fx_text_middle(struct fx_canvas *c,int x,int center,const char *s,uint32_t color) {
     int top=96,bottom=-96;
@@ -115,82 +150,122 @@ static void fx_hint(struct fx_canvas *c,int x,int center,const char *key,const c
     fx_sprite(c,id,x,center-18,36);fx_text_middle(c,x+42,center,label,FX_WHITE);
 }
 static void fx_gear(struct fx_canvas *c,int x,int y,int r,uint32_t col) {
-    double axes[8][2];
-    for(int i=0;i<8;i++){double t=i*3.141592653589793/4;axes[i][0]=cos(t);axes[i][1]=sin(t);}
-    for(int yy=-r;yy<=r;yy++)for(int xx=-r;xx<=r;xx++){
-        double d=(double)xx*xx+(double)yy*yy;int filled=d<r*r*0.64;
-        if(d<r*r*0.13||d>r*r)continue;
-        for(int i=0;!filled&&i<8;i++){
-            double along=xx*axes[i][0]+yy*axes[i][1],across=yy*axes[i][0]-xx*axes[i][1];
-            filled=along>0&&along<r&&fabs(across)<r*0.19;
+    const unsigned char *mask=c->art->gear[(int)fx_clamp(r-29,0,6)];
+    for(int yy=-r;yy<=r;yy++)for(int xx=-r;xx<=r;xx++)
+        fx_put(c,x+xx,y+yy,col,mask[(yy+35)*71+xx+35]);
+}
+/* Opaque cover art is scaled once for each of the 49 animated tile sizes. */
+static void fx_tile_image(struct fx_canvas *c,int x,int y,int w) {
+    const uint32_t *tile=c->art->tiles[w-212];
+    for(int yy=0;yy<w;yy++)for(int xx=0;xx<w;xx++){
+        uint32_t p=tile[yy*w+xx];unsigned a=p>>24;
+        if(a==255)c->pixels[(y+yy)*c->stride+x+xx]=p;
+        else if(a)fx_put(c,x+xx,y+yy,p,a);
+    }
+}
+/* One moving light supplies both the glass gradient and its soft edge bloom.
+ * Arc-length motion follows the rounded contour without a hard head/tail seam. */
+struct fx_light {float x,y;};
+static struct fx_light fx_orbit(int w,int h,int r,unsigned frame) {
+    const float pi=3.141592654f;float a=w-2*r,b=h-2*r,q=r*pi*.5f;
+    float t=(frame%360)/360.f*(2*a+2*b+4*q);struct fx_light l;
+    if(t<a){l.x=r+t;l.y=0;return l;}t-=a;
+    if(t<q){float z=t/r-pi*.5f;l.x=w-r+r*cosf(z);l.y=r+r*sinf(z);return l;}t-=q;
+    if(t<b){l.x=w;l.y=r+t;return l;}t-=b;
+    if(t<q){float z=t/r;l.x=w-r+r*cosf(z);l.y=h-r+r*sinf(z);return l;}t-=q;
+    if(t<a){l.x=w-r-t;l.y=h;return l;}t-=a;
+    if(t<q){float z=t/r+pi*.5f;l.x=r+r*cosf(z);l.y=h-r+r*sinf(z);return l;}t-=q;
+    if(t<b){l.x=0;l.y=h-r-t;return l;}t-=b;
+    float z=t/r+pi;l.x=r+r*cosf(z);l.y=r+r*sinf(z);return l;
+}
+static float fx_decay(const struct fx_art *a,float value) {
+    unsigned index=(unsigned)(value*256.f);
+    return index<4096?a->decay[index]:0.f;
+}
+static void fx_light_axes(int w,int h,struct fx_light l,float *xs,float *ys,int pad) {
+    for(int x=-pad;x<w+pad;x++){float dx=(x+.5f-l.x)/(w*.54f+10);xs[x+pad]=expf(-dx*dx*1.35f);}
+    for(int y=-pad;y<h+pad;y++){float dy=(y+.5f-l.y)/(h*.88f+10);ys[y+pad]=expf(-dy*dy*1.35f);}
+}
+static void fx_glass(struct fx_canvas *c,int x,int y,int w,int h,int r,unsigned frame,int artwork) {
+    struct fx_light l=fx_orbit(w,h,r,frame);float xs[FX_W],ys[FX_H];
+    fx_light_axes(w,h,l,xs,ys,0);
+    for(int yy=0;yy<h;yy++)for(int xx=0;xx<w;xx++){
+        float d=fx_round_distance(xx+.5f,yy+.5f,w,h,r),coverage=fx_clamp(.5f-d,0,1);
+        if(!coverage)continue;
+        float light=xs[xx]*ys[yy];
+        if(artwork){
+            float rim=fx_decay(c->art,d*d/420.f);
+            fx_put(c,x+xx,y+yy,FX_COLOR(44,163,235),(unsigned)(coverage*light*rim*28));
+        }else{
+            float shade=.18f+.80f*light+.02f*(1-yy/(float)h);
+            uint32_t color=fx_blend(FX_COLOR(2,6,12),FX_COLOR(8,112,241),(unsigned)(shade*255));
+            /* Light-facing blue is saturated; the dark side shows the stadium. */
+            fx_put(c,x+xx,y+yy,color,(unsigned)(coverage*(174+72*light)));
         }
-        if(filled)fx_rect(c,x+xx,y+yy,1,1,col,255);
+    }
+}
+static void fx_glow(struct fx_canvas *c,int x,int y,int w,int h,int r,unsigned frame,float intensity) {
+    struct fx_light l=fx_orbit(w,h,r,frame);float xs[FX_W+36],ys[FX_H+36];
+    fx_light_axes(w,h,l,xs,ys,18);
+    int border=r+18;
+    for(int yy=-18;yy<h+18;yy++)for(int xx=-18;xx<w+18;xx++){
+        /* Only the perimeter contributes; skip the entire interior span. */
+        if(yy>=border&&yy<h-border&&xx==border)xx=w-border;
+        float signed_d=fx_round_distance(xx+.5f,yy+.5f,w,h,r),d=fabsf(signed_d);if(d>18)continue;
+        float light=xs[xx+18]*ys[yy+18];
+        float halo=fx_decay(c->art,d*d/(signed_d<0?12.f:66.f))*(8+light*144);
+        float edge=fx_decay(c->art,d*d/1.35f)*(4+light*225);
+        fx_put(c,x+xx,y+yy,FX_COLOR(5,124,255),(unsigned)fx_clamp(halo*intensity,0,190));
+        fx_put(c,x+xx,y+yy,FX_COLOR(24,207,255),(unsigned)fx_clamp(edge*intensity,0,240));
     }
 }
 static void fx_focus(struct fx_canvas *c,int x,int y,int w,int h,int r,unsigned frame) {
-    unsigned pulse=frame%90<45?frame%45:90-frame%90;
-    /* Diffuse light, never a solid stroke around the selected object. */
-    for(int g=12;g>=4;g-=4)fx_round(c,x-g,y-g,w+g*2,h+g*2,r+g,FX_BLUE,5+pulse/12);
-}
-static void fx_gloss(struct fx_canvas *c,int x,int y,int w,int h,int r,unsigned frame) {
-    for(int yy=0;yy<h;yy++){
-        int n=fx_inset(yy,h,r);
-        unsigned top=yy<h/3?(unsigned)(h/3-yy)*48/(h/3):0;
-        for(int xx=n;xx<w-n;xx++){
-            int d=abs(xx+yy/2-((int)(frame%210)*(w+150)/210-75));
-            unsigned a=top+(d<55?(unsigned)(55-d)*18/55:0);
-            if(a)fx_rect(c,x+xx,y+yy,1,1,FX_WHITE,a);
-        }
-    }
+    fx_glow(c,x,y,w,h,r,frame,1.f);
 }
 static void fx_play(struct fx_canvas *c,int x,int y,int focus,unsigned frame) {
-    if(focus)fx_focus(c,x,y,223,54,27,frame);
-    for(int yy=0;yy<54;yy++){
-        int n=fx_inset(yy,54,27);
-        uint32_t base=FX_COLOR(9,91+(53-yy),181+(53-yy));
-        unsigned gloss=yy<27?(27-yy)*3:0;
-        for(int xx=n;xx<223-n;xx++){
-            uint32_t col=fx_blend(base,FX_COLOR(158,221,255),gloss);
-            /* A soft diagonal reflection traverses the focused glass button. */
-            int distance=abs(xx+(yy*2/3)-((int)(frame%150)*4-75));
-            if(focus&&distance<42)col=fx_blend(col,FX_WHITE,(42-distance)*2);
-            fx_rect(c,x+xx,y+yy,1,1,col,255);
+    if(focus){fx_glass(c,x,y,240,58,29,frame,0);fx_glow(c,x,y,240,58,29,frame,1.f);}
+    else fx_round(c,x,y,240,58,29,FX_COLOR(9,19,31),218);
+    uint32_t ink=focus?FX_WHITE:FX_COLOR(113,132,153);
+    int group_x=x+(240-24-12-fx_text_width(c->art,"Play",0))/2;
+    /* Rounded AA triangle, sampled above native resolution. */
+    for(int yy=0;yy<26;yy++)for(int xx=0;xx<24;xx++){
+        unsigned hit=0;
+        for(int sy=0;sy<4;sy++)for(int sx=0;sx<4;sx++){
+            float px=xx+(sx+.5f)/4,py=yy+(sy+.5f)/4;
+            hit+=px>1&&px<22&&fabsf(py-13)<(23-px)*.56f;
         }
+        fx_put(c,group_x+xx,y+16+yy,ink,hit*255/16);
     }
-    for(int xx=0;xx<17;xx++)fx_rect(c,x+67+xx,y+16+xx/2,1,23-xx,FX_WHITE,255);
-    fx_text(c,x+101,y+11,"Play",1,FX_WHITE);
+    fx_text_middle(c,group_x+36,y+29,"Play",ink);
 }
-static void fx_footer(struct fx_canvas *c) {
-    /* Blur the stadium backdrop before drawing hints. Two small scanline
-     * passes avoid retaining a second full-size framebuffer. */
-    enum { SCALE=4, W=FX_W/SCALE, H=24, TOP=624, R=4 };
-    uint32_t reduced[H][W],horizontal[H][W];
-    for(int y=0;y<H;y++)for(int x=0;x<W;x++){
-        unsigned r=0,g=0,b=0;
-        for(int dy=0;dy<SCALE;dy++)for(int dx=0;dx<SCALE;dx++){
-            uint32_t p=c->art->bg[(TOP+y*SCALE+dy)*FX_W+x*SCALE+dx];
-            r+=p&255;g+=(p>>8)&255;b+=(p>>16)&255;
-        }
-        reduced[y][x]=FX_COLOR(r/16,g/16,b/16);
+static void fx_frost(struct fx_canvas *c,int top,int bottom,int side) {
+    for(int y=top;y<bottom;y++)for(int x=0;x<FX_W;x++){
+        float mask=side==0?1.f:side<0?fx_clamp((460.f-x)/130.f,0,1):fx_clamp((x-870.f)/105.f,0,1);
+        if(!mask)continue;
+        uint32_t frosted=fx_blend(c->art->blur[y*FX_W+x],FX_COLOR(4,10,18),155);
+        fx_put(c,x,y,frosted,(unsigned)(mask*235));
     }
-    for(int y=0;y<H;y++)for(int x=0;x<W;x++){
-        unsigned r=0,g=0,b=0;
-        for(int d=-R;d<=R;d++){
-            int sx=x+d;if(sx<0)sx=0;if(sx>=W)sx=W-1;
-            uint32_t p=reduced[y][sx];r+=p&255;g+=(p>>8)&255;b+=(p>>16)&255;
-        }
-        horizontal[y][x]=FX_COLOR(r/(R*2+1),g/(R*2+1),b/(R*2+1));
-    }
-    for(int y=658;y<FX_H;y++)for(int x=0;x<W;x++){
-        unsigned r=0,g=0,b=0;
-        for(int d=-R;d<=R;d++){
-            int sy=(y-TOP)/SCALE+d;if(sy<0)sy=0;if(sy>=H)sy=H-1;
-            uint32_t p=horizontal[sy][x];r+=p&255;g+=(p>>8)&255;b+=(p>>16)&255;
-        }
-        uint32_t p=fx_blend(FX_COLOR(r/(R*2+1),g/(R*2+1),b/(R*2+1)),FX_COLOR(8,17,31),104);
-        fx_rect(c,x*SCALE,y,SCALE,1,p,255);
-    }
-    fx_rect(c,0,658,FX_W,1,FX_COLOR(174,210,238),60);
+}
+static void fx_footer(struct fx_canvas *c) {fx_frost(c,658,FX_H,0);}
+static void fx_header(struct fx_canvas *c) {
+    fx_frost(c,0,78,-1);fx_frost(c,0,78,1);
+    fx_image(c,c->art->gamepad,128,96,39,21,44,33,0,255);
+    fx_text(c,119,26,"PES13",0,FX_WHITE);
+    fx_round(c,117,63,59,3,1,FX_BLUE,230);
+    fx_image(c,c->art->icon,256,256,964,17,42,42,11,255);
+    fx_image(c,c->art->wordmark,600,128,1018,16,125,27,0,255);
+    fx_text(c,1018,45,"by AndroSwitch Project",3,FX_MUTED);
+}
+static void fx_battery(struct fx_canvas *c,const struct fx_view *v) {
+    fx_round(c,1214,23,33,16,4,FX_MUTED,255);
+    fx_round(c,1216,25,29,12,2,FX_COLOR(8,17,26),255);
+    fx_round(c,1248,28,3,6,1,FX_MUTED,255);
+    if(v->battery>=0){
+        int fill=(int)(25*fx_clamp(v->battery,0,100)/100);
+        if(fill)fx_round(c,1218,27,fill,8,1,v->charging?FX_COLOR(104,229,182):FX_WHITE,255);
+        char percent[12];snprintf(percent,sizeof(percent),"%d%%",v->battery);
+        fx_center(c,1231,45,percent,3,FX_MUTED);
+    }else fx_center(c,1231,45,"--",3,FX_MUTED);
 }
 static void fx_wrapped(struct fx_canvas *c,int x,int y,const char *message,int width) {
     char line[192]={0};size_t used=0;int rows=0;
@@ -207,81 +282,188 @@ static void fx_wrapped(struct fx_canvas *c,int x,int y,const char *message,int w
     }
     if(used&&rows<3)fx_text(c,x,y+rows*27,line,0,FX_MUTED);
 }
-static void fx_render(struct fx_canvas *c,const struct fx_view *v) {
-    int y,i;char status[96];
+static void fx_static_scene(struct fx_canvas *c,int settings) {
+    int y;
     for(y=0;y<FX_H;y++)memcpy(c->pixels+y*c->stride,c->art->bg+y*FX_W,FX_W*4);
     /* Soft scrims leave the stadium visible and protect label contrast. */
     for(y=0;y<FX_H;y++){
         unsigned a=y>380?(unsigned)(y-380)*170/340:15;
         fx_rect(c,0,y,FX_W,1,FX_COLOR(3,9,20),a);
     }
-    fx_rect(c,0,0,FX_W,65,FX_COLOR(5,12,25),230);
-    fx_rect(c,0,64,FX_W,1,FX_COLOR(149,191,232),30);
-    fx_image(c,c->art->gamepad,64,48,40,18,40,30,0,255);
-    fx_text(c,119,23,"PES13",0,FX_WHITE);
-    fx_round(c,119,58,fx_text_width(c->art,"PES13",0),3,1,FX_BLUE,255);
-    fx_round(c,934,12,42,42,10,FX_COLOR(15,34,54),255);
-    fx_image(c,c->art->icon,238,238,934,12,42,42,10,255);
-    fx_image(c,c->art->wordmark,300,64,990,9,144,31,0,255);
-    fx_text(c,990,35,"by AndroSwitch Project",0,FX_MUTED);
-    if(v->screen!=FX_SETTINGS){
+    fx_header(c);
+    if(!settings){
         fx_image(c,c->art->logo,480,158,62,304,438,144,0,255);
         fx_text(c,76,463,"The beautiful game,",1,FX_WHITE);
         fx_text(c,76,493,"reborn.",1,FX_WHITE);
-        fx_play(c,76,552,v->tile==0,v->frame);
-        for(i=0;i<2;i++){
-            int x=i?991:703;
-            int yy=i?274:252,w=i?212:260;
-            int selected=v->tile==i;
-            fx_round(c,x+5,yy+9,w,w,18,FX_COLOR(0,0,0),140);
-            if(selected)fx_focus(c,x,yy,w,w,18,v->frame);
-            fx_image(c,c->art->icon,238,238,x,yy,w,w,18,255);
-            if(i){
-                fx_round(c,x,yy,w,w,18,FX_COLOR(5,25,48),218);
-                for(int j=0;j<5;j++)fx_round(c,x+25+j*9,yy+26+j*24,w-50,1,0,FX_BLUE,35);
-                fx_gear(c,x+w/2,yy+w/2,34,selected?FX_WHITE:FX_MUTED);
-            }else if(!selected)fx_round(c,x,yy,w,w,18,FX_COLOR(3,13,28),65);
-            if(selected)fx_gloss(c,x,yy,w,w,18,v->frame);
-            fx_text(c,x+9,yy+w+16,i?"Settings":"PES13",1,selected?FX_WHITE:FX_MUTED);
-            fx_circle(c,x+14,yy+w+65,4,selected?FX_BLUE:FX_COLOR(90,112,140));
-            fx_text(c,x+28,yy+w+53,i?"Graphics presets":"Launch",0,selected?FX_BLUE:FX_MUTED);
-        }
-        snprintf(status,sizeof(status),"%s  /  16:9  /  VSync ON",fx_preset_names[v->selected]);
-        fx_text(c,711,623,status,0,FX_MUTED);
     }else{
-        fx_rect(c,0,65,FX_W,593,FX_COLOR(3,12,27),165);
+        fx_rect(c,0,78,FX_W,580,FX_COLOR(3,12,27),165);
         fx_text(c,66,116,"Make it",2,FX_WHITE);fx_text(c,66,164,"your game.",2,FX_WHITE);
         fx_text(c,69,232,"Four presets.",0,FX_MUTED);fx_text(c,69,260,"One press to switch.",0,FX_MUTED);
         fx_image(c,c->art->logo,480,158,63,477,276,91,0,220);
         fx_round(c,380,96,834,529,23,FX_COLOR(9,23,41),244);
-        fx_text(c,414,116,"Graphics presets",2,FX_WHITE);
-        fx_text(c,417,172,"Choose your balance of detail and performance.",0,FX_MUTED);
-        for(i=0;i<4;i++){
-            int on=v->row==i;y=211+i*70;
-            if(on)fx_focus(c,412,y,770,61,12,v->frame);
-            fx_round(c,412,y,770,61,12,on?FX_COLOR(22,58,94):FX_COLOR(18,34,54),255);
-            if(on)fx_gloss(c,412,y,770,61,12,v->frame);
-            fx_text(c,435,y+3,fx_preset_names[i],1,FX_WHITE);
-            fx_text(c,437,y+33,fx_preset_details[i],0,FX_MUTED);
-            if(v->selected==i){
-                fx_round(c,1060,y+16,95,29,14,FX_COLOR(18,98,132),255);
-                fx_center(c,1107,y+19,"ACTIVE",0,FX_WHITE);
-            }
-        }
-        if(v->row==4)fx_focus(c,412,504,770,65,12,v->frame);
-        fx_round(c,412,504,770,65,12,v->row==4?FX_COLOR(22,58,94):FX_COLOR(18,34,54),255);
-        if(v->row==4)fx_gloss(c,412,504,770,65,12,v->frame);
-        fx_text(c,435,508,"Debug timestamp",1,FX_WHITE);
-        fx_text(c,437,540,"Show elapsed time in game for matching the log.",0,FX_MUTED);
-        fx_round(c,1080,519,72,32,16,v->timestamp?FX_COLOR(21,144,208):FX_COLOR(65,83,103),255);
-        fx_circle(c,v->timestamp?1136:1096,535,12,FX_WHITE);
-        fx_text(c,418,589,v->saved?"Settings saved. Ready to play.":"16:9 widescreen  /  VSync ON",0,v->saved?FX_BLUE:FX_MUTED);
+        fx_text(c,414,116,"Settings",2,FX_WHITE);
+        fx_text(c,417,172,"Graphics, on-screen debug and console sounds.",0,FX_MUTED);
     }
     fx_footer(c);
-    fx_hint(c,56,689,"A",v->screen==FX_SETTINGS?(v->row==4?"Toggle":"Apply"):"Select");
-    fx_hint(c,210,689,"B","Back");
-    fx_hint(c,950,689,"+","Exit");fx_hint(c,1084,689,"H","HOME");
-    if(v->screen==FX_LOADING||v->screen==FX_FAILED){
+    fx_hint(c,210,689,"B","Back");fx_hint(c,950,689,"+","Exit");fx_hint(c,1084,689,"H","HOME");
+}
+static int fx_prepare_art(struct fx_art *a) {
+    for(int i=0;i<=4096;i++)a->decay[i]=expf(-i/256.f);
+    for(int y=-21;y<=21;y++)for(int x=-21;x<=21;x++){
+        float distance=hypotf(x,y),angle=atan2f(y,x)+1.57079632679f;
+        if(angle<0)angle+=6.28318530718f;
+        unsigned coverage=(unsigned)(255*fx_clamp(1.8f-fabsf(distance-18),0,1));
+        unsigned phase=(unsigned)(angle*256.f/6.28318530718f)&255;
+        a->spinner[(y+21)*43+x+21]=(uint16_t)((coverage<<8)|phase);
+    }
+    for(int radius=29;radius<=35;radius++){
+        for(int yy=-radius;yy<=radius;yy++)for(int xx=-radius;xx<=radius;xx++){
+            unsigned samples=0;
+            for(int sy=0;sy<4;sy++)for(int sx=0;sx<4;sx++){
+                float px=xx+(sx+.5f)/4-.5f,py=yy+(sy+.5f)/4-.5f,d=hypotf(px,py);
+                float wave=cosf(atan2f(py,px)*8),edge=radius*(wave>.25f?1.f:.79f);
+                samples+=d<edge&&d>radius*.34f;
+            }
+            a->gear[radius-29][(yy+35)*71+xx+35]=samples*255/16;
+        }
+    }
+    /* Bilinear RGB for opaque cover art; rounded coverage remains an AA mask. */
+    for(int w=212;w<=260;w++){
+        uint32_t *tile=a->tiles[w-212]=malloc((size_t)w*w*4);if(!tile)return 0;
+        for(int y=0;y<w;y++)for(int x=0;x<w;x++){
+            float sx=fx_clamp((x+.5f)*256/w-.5f,0,255),sy=fx_clamp((y+.5f)*256/w-.5f,0,255);
+            int x0=(int)sx,y0=(int)sy,x1=x0<255?x0+1:x0,y1=y0<255?y0+1:y0;
+            unsigned tx=(unsigned)((sx-x0)*256),ty=(unsigned)((sy-y0)*256);
+            uint32_t top=fx_blend(a->icon[y0*256+x0],a->icon[y0*256+x1],tx>255?255:tx);
+            uint32_t bot=fx_blend(a->icon[y1*256+x0],a->icon[y1*256+x1],tx>255?255:tx);
+            uint32_t rgb=fx_blend(top,bot,ty>255?255:ty);
+            unsigned alpha=(unsigned)(255*fx_clamp(.5f-fx_round_distance(x+.5f,y+.5f,w,w,22),0,1));
+            tile[y*w+x]=(rgb&0xffffff)|(alpha<<24);
+        }
+    }
+    for(int i=0;i<4;i++){
+        a->scene[i]=malloc(FX_W*FX_H*4);if(!a->scene[i])return 0;
+        struct fx_canvas c={a->scene[i],FX_W,a,0,0};
+        if(i<2)fx_static_scene(&c,i);
+        else if(i==2){
+            /* Precomposed frosted modal: no blur, shadows or gloss in the loop. */
+            for(int y=0;y<FX_H;y++)for(int x=0;x<FX_W;x++)
+                c.pixels[y*FX_W+x]=fx_blend(a->blur[y*FX_W+x],FX_COLOR(2,8,19),205);
+            const int left=416,top=154,width=448,height=412,radius=30;
+            for(int y=-28;y<height+28;y++)for(int x=-28;x<width+28;x++){
+                float d=fx_round_distance(x+.5f,y+.5f,width,height,radius);
+                if(d>0)fx_put(&c,left+x,top+y,FX_COLOR(0,2,7),(unsigned)(fx_decay(a,d*d/230.f)*145));
+                if(d<=1){
+                    float dx=(x-45)/260.f,dy=(y-25)/175.f;
+                    float highlight=fx_decay(a,dx*dx+dy*dy);
+                    float edge=fx_decay(a,d*d/1.1f);
+                    uint32_t tint=fx_blend(FX_COLOR(6,14,29),FX_COLOR(21,69,108),(unsigned)(highlight*210));
+                    float cover=fx_clamp(.5f-d,0,1);
+                    fx_put(&c,left+x,top+y,tint,(unsigned)(cover*234));
+                    fx_put(&c,left+x,top+y,FX_COLOR(78,159,210),(unsigned)(cover*edge*(10+highlight*105)));
+                }
+            }
+            /* Local blue bloom and elevation behind the cover, baked once. */
+            for(int y=-112;y<=112;y++)for(int x=-132;x<=132;x++){
+                float dx=x/85.f,dy=y/73.f;
+                fx_put(&c,640+x,330+y,FX_COLOR(5,109,233),(unsigned)(fx_decay(a,dx*dx+dy*dy)*53));
+            }
+            fx_center(&c,640,190,"Launching game",1,FX_WHITE);
+            fx_round(&c,572,263,140,140,27,FX_COLOR(0,3,10),110);
+            fx_round(&c,570,252,140,140,27,FX_COLOR(53,126,172),110);
+            fx_image(&c,a->icon,256,256,573,255,134,134,24,255);
+        }else{
+            for(int y=0;y<FX_H;y++)for(int x=0;x<FX_W;x++){
+                float dx=(x-640)/320.f,dy=(y-350)/190.f;
+                unsigned amount=(unsigned)(fx_decay(a,dx*dx+dy*dy)*145);
+                c.pixels[y*FX_W+x]=fx_blend(FX_COLOR(3,8,17),FX_COLOR(7,39,76),amount);
+            }
+            fx_image(&c,a->wordmark,600,128,440,288,400,85,0,255);
+            fx_center(&c,640,401,"by AndroSwitch Project",0,FX_MUTED);
+            fx_round(&c,610,450,60,3,1,FX_BLUE,210);
+        }
+    }
+    return 1;
+}
+static void fx_spinner(struct fx_canvas *c,int x,int y,unsigned frame) {
+    unsigned phase=(frame%40)*256/40;
+    for(int yy=-21;yy<=21;yy++)for(int xx=-21;xx<=21;xx++){
+        unsigned mask=c->art->spinner[(yy+21)*43+xx+21],alpha=mask>>8;if(!alpha)continue;
+        unsigned trail=((mask&255)+256-phase)&255;
+        uint32_t color=fx_blend(FX_COLOR(32,58,86),FX_BLUE,trail<160?(160-trail)*255/160:0);
+        fx_put(c,x+xx,y+yy,color,alpha);
+    }
+}
+static void fx_render(struct fx_canvas *c,const struct fx_view *v) {
+    int y,i;char status[96];
+    int scene_index=v->splash_ms?3:v->screen==FX_LOADING?2:v->screen==FX_SETTINGS;
+    const uint32_t *scene=c->art->scene[scene_index];
+    for(y=0;y<FX_H;y++)memcpy(c->pixels+y*c->stride,scene+y*FX_W,FX_W*4);
+    if(v->splash_ms)return;
+    if(v->screen==FX_LOADING){fx_spinner(c,640,462,v->frame);return;}
+    fx_battery(c,v);
+    if(v->screen!=FX_SETTINGS){
+        fx_play(c,76,552,v->tile==0,v->frame);
+        char played[48];fx_last_played_label(played,v->last_played,v->wall_time);
+        fx_text(c,76,623,"Last played",0,FX_MUTED);
+        fx_text(c,76+fx_text_width(c->art,"Last played",0)+15,623,played,0,FX_WHITE);
+        for(i=0;i<2;i++){
+            float amount=i?v->tile_mix:1-v->tile_mix;
+            int w=(int)lroundf(212+48*amount),x=(i?1098:826)-w/2,yy=384-w/2;
+            int selected=v->tile==i;
+            fx_round(c,x+4,yy+8,w,w,22,FX_COLOR(0,0,0),115);
+            if(i){
+                if(selected)fx_glass(c,x,yy,w,w,22,v->frame,0);
+                else fx_round(c,x,yy,w,w,22,FX_COLOR(8,21,36),225);
+                fx_gear(c,x+w/2,yy+w/2,(int)(29+6*amount),selected?FX_WHITE:FX_MUTED);
+            }else{
+                fx_tile_image(c,x,yy,w);
+                if(!selected)fx_round(c,x,yy,w,w,22,FX_COLOR(2,8,16),45);
+            }
+            if(selected&&!i)fx_glass(c,x,yy,w,w,22,v->frame,1);
+            if(selected)fx_glow(c,x,yy,w,w,22,v->frame,1.f);
+            fx_text(c,x+9,yy+w+16,i?"Settings":"PES13",1,selected?FX_WHITE:FX_MUTED);
+            fx_circle(c,x+14,yy+w+65,4,selected?FX_BLUE:FX_COLOR(90,112,140));
+            fx_text(c,x+28,yy+w+53,i?"Preferences":"Launch",0,selected?FX_BLUE:FX_MUTED);
+        }
+        snprintf(status,sizeof(status),"%s  /  16:9  /  VSync ON",fx_preset_names[v->selected]);
+        fx_text(c,711,623,status,0,FX_MUTED);
+    }else{
+        char position[16];snprintf(position,sizeof(position),"%d / 6",v->row+1);
+        fx_text(c,1116,135,position,0,FX_MUTED);
+        /* Clip every primitive, including text/glow, inside the scroll viewport. */
+        c->clip_top=204;c->clip_bottom=560;
+        for(i=0;i<6;i++){
+            int on=v->row==i;y=216+i*116-(int)lroundf(v->settings_scroll);
+            if(y+118<c->clip_top||y-18>=c->clip_bottom)continue;
+            if(on)fx_glass(c,412,y,766,100,14,v->frame,0);
+            else fx_round(c,412,y,766,100,14,FX_COLOR(12,25,39),255);
+            if(on)fx_focus(c,412,y,766,100,14,v->frame);
+            fx_text(c,435,y+20,i<4?fx_preset_names[i]:i==4?"Debug timestamp":"Menu sounds",1,FX_WHITE);
+            fx_text(c,437,y+61,i<4?fx_preset_details[i]:i==4?"On-screen stopwatch while you play":"Soft sounds for navigation and actions",0,FX_MUTED);
+            if(i<4&&v->selected==i){
+                fx_round(c,1060,y+35,95,29,14,FX_COLOR(18,98,132),255);
+                fx_center(c,1107,y+38,"ACTIVE",0,FX_WHITE);
+            }else if(i>=4){
+                int value=i==4?v->timestamp:v->sound;
+                fx_round(c,1080,y+34,72,32,16,value?FX_COLOR(21,144,208):FX_COLOR(50,61,76),255);
+                fx_circle(c,value?1136:1096,y+50,12,FX_WHITE);
+            }
+        }
+        for(int fade=0;fade<16;fade++){
+            unsigned alpha=(unsigned)(255*(1-fade/16.f)*(1-fade/16.f));
+            fx_rect(c,394,204+fade,791,1,FX_COLOR(9,23,41),alpha);
+            fx_rect(c,394,559-fade,791,1,FX_COLOR(9,23,41),alpha);
+        }
+        c->clip_top=c->clip_bottom=0;
+        fx_round(c,1194,216,3,332,1,FX_COLOR(32,51,70),255);
+        int thumb=(int)(332.f*332.f/680.f);
+        int thumb_y=216+(int)((332-thumb)*v->settings_scroll/FX_SETTINGS_MAX_SCROLL);
+        fx_round(c,1194,thumb_y,3,thumb,1,FX_COLOR(45,142,202),255);
+        fx_text(c,418,589,v->saved?"Settings saved. Ready to play.":"16:9 widescreen  /  VSync ON",0,v->saved?FX_BLUE:FX_MUTED);
+    }
+    fx_hint(c,56,689,"A",v->screen==FX_SETTINGS?(v->row>=4?"Toggle":"Apply"):"Select");
+    if(v->screen==FX_FAILED){
         int failed=v->screen==FX_FAILED;uint32_t accent=failed?FX_COLOR(255,142,138):FX_BLUE;
         fx_rect(c,0,0,FX_W,FX_H,FX_COLOR(1,7,17),202);
         for(i=12;i>=4;i-=4)fx_round(c,332-i,214+i,616+i*2,294,26+i,FX_COLOR(0,0,0),30);

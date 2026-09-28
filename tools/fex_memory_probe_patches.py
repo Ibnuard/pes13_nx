@@ -6,8 +6,8 @@ def apply(read, replace, project):
     name = 'wine-nx-probe/source/runtime.c'
     anchor = 'static void *log_flusher( void *arg )'
     replace(name, anchor, (project/'src/runtime/fex_memory_probe.h').read_text()+'\n'+anchor)
-    replace(name, 'fex_yield_report(); fex_gap_report(); fx_timestamp_report(); }',
-            'fex_yield_report(); fex_gap_report(); fx_timestamp_report(); fex_memory_report(); }')
+    replace(name, 'fex_yield_report(); fex_gap_report(); }',
+            'fex_yield_report(); fex_gap_report(); fex_memory_report(); }')
     anchor = '    log_line("[FEX3-GAP] v1 enabled=%d threshold_us=50000 capacity=32; one thread tick query per Present", fex_gap_probe_enabled);'
     replace(name, anchor, anchor+'\n    log_line("[FEX3-MEMQUERY] v1 enabled=%d threshold_us=1000 capacity=32; native memory-properties2 queries, two CPU queries per call", fex_gap_probe_enabled);')
     replace(name, '"pes13-fextendo-v1"', '"pes13-fextendo-mem-audit"')

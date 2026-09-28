@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <errno.h>
+#include <time.h>
 
 static const char *const fx_preset_ids[4] = {"medium-720","low-720","extra-low-540","high-720"};
 static const char *const fx_preset_names[4] = {"Medium 720p","Low 720p","Extra Low 540p","High 720p"};
@@ -68,6 +69,39 @@ static int fx_recover(const char *root) {
 static int fx_selected(const char *root) {
     char path[768],b[8]={0};snprintf(path,sizeof(path),"%s/launcher/selected.txt",root);
     return fx_read(path,b,7)==2 && b[0]>='0' && b[0]<='3' && b[1]=='\n' ? b[0]-'0':0;
+}
+static int fx_menu_sound(const char *root) {
+    char p[768],b[2];snprintf(p,sizeof(p),"%s/launcher/menu-sound.txt",root);
+    return fx_read(p,b,2)!=2||b[0]!='0'||b[1]!='\n';
+}
+static int fx_menu_sound_save(const char *root,int on) {
+    char p[768];snprintf(p,sizeof(p),"%s/launcher/menu-sound.txt",root);
+    return fx_write(p,on?"1\n":"0\n",2);
+}
+static uint64_t fx_last_played(const char *root) {
+    char path[768],text[32];snprintf(path,sizeof(path),"%s/launcher/last-played.txt",root);
+    size_t n=fx_read(path,text,sizeof(text));uint64_t value=0;
+    if(n<2||n>11||text[n-1]!='\n')return 0;
+    for(size_t i=0;i<n-1;i++){if(text[i]<'0'||text[i]>'9')return 0;value=value*10+text[i]-'0';}
+    return value>=946684800ull&&value<=4102444800ull?value:0;
+}
+static int fx_last_played_save(const char *root,uint64_t timestamp) {
+    if(timestamp<946684800ull||timestamp>4102444800ull)return 0;
+    char path[768],text[32];snprintf(path,sizeof(path),"%s/launcher/last-played.txt",root);
+    int n=snprintf(text,sizeof(text),"%llu\n",(unsigned long long)timestamp);
+    return fx_write(path,text,(size_t)n);
+}
+static void fx_last_played_label(char text[48],uint64_t played,uint64_t now) {
+    if(!played){snprintf(text,48,"Never");return;}
+    if(now<played||now<946684800ull){snprintf(text,48,"Recently");return;}
+    uint64_t seconds=now-played,value;const char *unit;
+    if(seconds<60){snprintf(text,48,"Just now");return;}
+    if(seconds<3600){value=seconds/60;unit="minute";}
+    else if(seconds<86400){value=seconds/3600;unit="hour";}
+    else if(seconds<2592000){value=seconds/86400;unit="day";}
+    else if(seconds<31536000){value=seconds/2592000;unit="month";}
+    else{value=seconds/31536000;unit="year";}
+    snprintf(text,48,"%llu %s%s ago",(unsigned long long)value,unit,value==1?"":"s");
 }
 static int fx_debug_timestamp(const char *root) {
     char p[768],b[2];snprintf(p,sizeof(p),"%s/launcher/debug-timestamp.txt",root);

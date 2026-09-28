@@ -1,5 +1,19 @@
 # PES13-NX icon
 
+## FEXTendo v3
+
+V3 retains the v2 generated stadium, flat gamepad and wordmark. The asset builder
+adds a preblurred stadium, 4× font rasterization, higher resolution sprite buffers,
+SVG controller helpers and a tiny timestamp atlas. Gradients, transparency,
+perimeter light and focus/scroll animation are rendered by the native C UI.
+
+`fextendo-v3/nro-icon.jpg` is a baseline JPEG conversion of the user-provided
+`icon.png` PES2013 cover. It is also emitted by the asset builder and embedded
+in the launcher NRO. The older `icon.jpg` remains for non-launcher builds.
+Asset format 3 requires the matching v3 NRO; update artwork and runtime together.
+Dependencies for asset conversion are Pillow and CairoSVG (with Cairo available).
+Existing asset rights and the Inter OFL below continue to apply.
+
 ## FEXTendo v2
 
 The v2 launcher uses generated `fextendo-v2/stadium.png`, `gamepad-flat.png`

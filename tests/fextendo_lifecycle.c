@@ -51,8 +51,8 @@ static void trace_view(int frame);
 static void padUpdate(PadState *p){p->index++;trace_view(p->index);}
 static u64 padGetButtonsDown(PadState *p){
     if(mode==3){
-        static const u64 input[]={HidNpadButton_Right,HidNpadButton_A,HidNpadButton_Up,HidNpadButton_A,HidNpadButton_B,0,HidNpadButton_Plus};
-        return p->index<7?input[p->index]:0;
+        static const u64 input[]={HidNpadButton_Right,HidNpadButton_A,HidNpadButton_Up,0,HidNpadButton_Up,HidNpadButton_A,HidNpadButton_B,0,HidNpadButton_Plus};
+        return p->index<9?input[p->index]:0;
     }
     if(mode==1)return p->index==0?HidNpadButton_Plus:0;
     if(mode==2)return p->index==0||p->index==2?HidNpadButton_A:p->index==4?HidNpadButton_Plus:0;
@@ -62,8 +62,20 @@ static u64 padGetButtons(PadState *p){return padGetButtonsDown(p);}
 static int errorApplicationCreate(ErrorApplicationConfig *c,const char *a,const char *b){(void)c;(void)a;(void)b;return 0;}
 static void errorApplicationShow(ErrorApplicationConfig *c){(void)c;errors++;}
 static void log_line(const char *f,...){(void)f;}
+enum fx_cue {FX_NAV,FX_CONFIRM,FX_BACK,FX_ERROR};
+static int sound_open,battery_open;
+static void fx_sfx_init(void){assert(!sound_open);sound_open=1;}
+static void fx_sfx_close(void){sound_open=0;}
+static void fx_sfx_play(enum fx_cue cue,int enabled){(void)cue;(void)enabled;}
+typedef int PsmChargerType;
+#define PsmChargerType_Unconnected 0
+static int psmInitialize(void){battery_open=1;return 0;}
+static void psmExit(void){assert(battery_open);battery_open=0;}
+static int psmGetBatteryChargePercentage(u32 *n){*n=82;return 0;}
+static int psmGetChargerType(PsmChargerType *t){*t=0;return 0;}
 static void fx_timestamp_start(void){}
 static void fx_timestamp_arm(int on,uint64_t t){(void)on;(void)t;}
+#define FX_SPLASH_MS 0 /* Dedicated screenshot test covers splash; navigation starts ready. */
 #include "../src/runtime/fextendo_launcher.h"
 static void trace_view(int frame){if(frame<4)fprintf(stderr,"frame=%d screen=%d selected=%d message=%s\n",frame,fx_ui_view.screen,fx_ui_view.selected,fx_ui_view.message?fx_ui_view.message:"none");}
 int main(int argc,char **argv){
@@ -72,11 +84,15 @@ int main(int argc,char **argv){
     if(mode){assert(!fx_launcher_start());assert(!fx_owned());assert(closed==1);assert(!fx_ui_created);
         if(mode==3){assert(fx_ui_view.timestamp);assert(fx_debug_timestamp(test_root));assert(fx_ui_view.screen==FX_HOME);}}
     else{
-        assert(fx_launcher_start());assert(fx_owned());assert(!closed);assert(fx_boot_started);
+        assert(fx_launcher_start());assert(!sound_open);assert(fx_owned());assert(!closed);assert(fx_boot_started);
         fx_stage("Testing loading handoff...");assert(fx_handoff());assert(!fx_owned());assert(closed==1);assert(!fx_ui_created);
         assert(fx_handoff());assert(closed==1); /* repeated acquisitions cannot rejoin */
-        fx_fail("A modeled startup failure");assert(errors==1);fx_first_present=1;
+        fx_fail("A modeled startup failure");assert(errors==1);
+        assert(!fx_last_played(test_root));fx_record_first_present();assert(!fx_last_played(test_root));
+        fx_history_flush();uint64_t saved=fx_last_played(test_root);assert(saved>0);
+        fx_record_first_present();fx_history_flush();assert(fx_last_played(test_root)==saved);
         fx_fail("Ignored after successful first frame");assert(errors==1);
     }
+    assert(!sound_open&&!battery_open);
     puts("Controller startup/cancel/error flow and one-owner framebuffer handoff passed.");return 0;
 }

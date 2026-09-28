@@ -177,15 +177,17 @@ def main():
         raise RuntimeError('Native dependencies changed during build')
     name = 'pes13-fex' if args.integration else 'pes13-fex2'
     title = 'PES13-NX FEX3' if args.integration else 'PES13 FEX2 x86 Test'
-    if args.launcher: title = 'Fextendo / PES13'
+    if args.launcher: title = 'FEXTendo / PES13'
     version = '0.3.0' if args.integration else '0.2.0'
+    if args.launcher: version = '0.3.2'
     nacp, nro = work / (name + '.nacp'), work / (name + '.nro')
     run([devkit / 'tools/bin/nacptool', '--create', title,
-         'PES13-NX / Wine / FEX-Emu', version, nacp])
+         'AndroSwitch Project' if args.launcher else 'PES13-NX / Wine / FEX-Emu', version, nacp])
+    icon = project / ('assets/fextendo-v3/nro-icon.jpg' if args.launcher else 'assets/icon.jpg')
     run([devkit / 'tools/bin/elf2nro', build / 'wine-nx-runtime.elf', nro,
-         '--nacp=' + str(nacp), '--icon=' + str(project / 'assets/icon.jpg')])
+         '--nacp=' + str(nacp), '--icon=' + str(icon)])
     from nro_assets import inspect_nro
-    metadata = inspect_nro(nro.read_bytes(), (project / 'assets/icon.jpg').read_bytes(),
+    metadata = inspect_nro(nro.read_bytes(), icon.read_bytes(),
                            expected_title=title, expected_version=version)
     payload = evidence / 'payload'
     payload.mkdir(exist_ok=True)
@@ -292,7 +294,8 @@ def main():
         report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
                                        for name in ('tools/fextendo_launcher_patches.py','src/runtime/fextendo_presets.h',
                                                     'src/runtime/fextendo_ui.h','src/runtime/fextendo_launcher.h',
-                                                    'src/runtime/fextendo_timestamp_pixels.h','src/runtime/fextendo_timestamp.h')})
+                                                    'src/runtime/fextendo_timestamp_pixels.h','src/runtime/fextendo_timestamp.h',
+                                                    'src/runtime/fextendo_overlay_layer.h','src/runtime/fextendo_sfx.h')})
     if args.memory_audit:
         report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
                                        for name in ('tools/fex_memory_probe_patches.py', 'src/runtime/fex_memory_probe.h')})

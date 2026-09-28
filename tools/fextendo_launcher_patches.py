@@ -2,7 +2,7 @@
 
 def apply(read,replace,project):
     name='wine-nx-probe/source/runtime.c'
-    headers=('fextendo_presets.h','fextendo_ui.h','fextendo_timestamp_pixels.h','fextendo_timestamp.h','fextendo_launcher.h')
+    headers=('fextendo_presets.h','fextendo_ui.h','fextendo_timestamp_pixels.h','fextendo_overlay_layer.h','fextendo_timestamp.h','fextendo_sfx.h','fextendo_launcher.h')
     body='\n'.join((project/'src/runtime'/p).read_text() for p in headers)
     replace(name,'static void log_line(const char *fmt, ...);','static void log_line(const char *fmt, ...);\n'+body)
     replace(name,'static int wine_nx_console_active = 1;','static int wine_nx_console_active = 0;')
@@ -22,7 +22,9 @@ def apply(read,replace,project):
     replace(name,'static void park_forever(void)\n{',
             'static void park_forever(void)\n{\n    fx_fail("PES13 could not start. Check fex-runtime.log.");')
     replace(name,'    fex_gap_present(queue, swapchain, 1);',
-            '    fex_gap_present(queue, swapchain, 1);\n    __atomic_store_n(&fx_first_present, 1, __ATOMIC_RELEASE);')
+            '    fex_gap_present(queue, swapchain, 1);\n    fx_record_first_present();')
+    replace(name,'static void fex_frame_report(void)\n{',
+            'static void fex_frame_report(void)\n{\n    fx_history_flush();')
     replace(name,'    if (!pes13_fex_context_preflight()) park_forever();',
             '    fx_stage("Preparing your game...");\n    if (!pes13_fex_context_preflight()) park_forever();')
     replace(name,'    wine_nx_runtime_platform_init();',
@@ -30,4 +32,3 @@ def apply(read,replace,project):
     replace(name,'    status = map_pe_image( target, &module, &view_size );',
             '    fx_stage("Starting PES13...");\n    status = map_pe_image( target, &module, &view_size );')
     replace(name,'"pes13-fex3-gap-audit"','"pes13-fextendo-v1"')
-    replace(name,'fex_yield_report(); fex_gap_report(); }','fex_yield_report(); fex_gap_report(); fx_timestamp_report(); }')
