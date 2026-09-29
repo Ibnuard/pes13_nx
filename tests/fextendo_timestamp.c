@@ -9,6 +9,7 @@
 #include <stdarg.h>
 #include <time.h>
 #include "../src/runtime/fextendo_presets.h"
+#include "../src/runtime/fextendo_renderers.h"
 typedef uint64_t u64;typedef uint32_t u32;typedef int32_t s32;typedef int Result;
 typedef struct {char data[64];} ViDisplayName;
 typedef struct {int initialized;ViDisplayName display_name;u64 display_id;} ViDisplay;

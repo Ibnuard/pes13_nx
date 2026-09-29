@@ -12,8 +12,8 @@
 #define FX_WHITE FX_COLOR(242,248,252)
 #define FX_MUTED FX_COLOR(170,185,208)
 #define FX_BLUE FX_COLOR(51,194,255)
-#define FX_APP_VERSION "0.3.3"
-#define FX_RELEASE "v3.2"
+#define FX_APP_VERSION "0.3.6"
+#define FX_RELEASE "v3.5"
 #define FX_TILE_MIN 212
 #define FX_TILE_MAX 260
 #define FX_SCENES 6
@@ -21,7 +21,7 @@
 #define FX_SPLASH_MS 2400
 #endif
 enum fx_screen { FX_HOME,FX_SETTINGS,FX_LOADING,FX_FAILED,FX_CREDITS };
-struct fx_view { enum fx_screen screen;int tile,row,selected,saved,fatal,timestamp,sound,battery,charging,credit_page,music;float tile_mix,settings_scroll;unsigned frame,splash_ms;uint64_t last_played,wall_time;const char *message; };
+struct fx_view { enum fx_screen screen;int tile,row,selected,saved,fatal,timestamp,sound,battery,charging,credit_page,music,renderer,frame_generation;float tile_mix,settings_scroll;unsigned frame,splash_ms;uint64_t last_played,wall_time;const char *message; };
 struct fx_art { uint32_t *bg,*blur,*logo,*icon,*buttons,*gamepad,*wordmark,*settings_icon,*credits_icon,*scene[FX_SCENES],*tiles[3][FX_TILE_MAX-FX_TILE_MIN+1];uint16_t spinner[43*43];float decay[4097];unsigned char *font;size_t font_size; };
 struct fx_canvas { uint32_t *pixels;int stride;const struct fx_art *art;int clip_top,clip_bottom,clip_left,clip_right; };
 static int fx_prepare_art(struct fx_art *a);
@@ -136,8 +136,9 @@ static void fx_sprite(struct fx_canvas *c,int id,int x,int y,int size) {
     fx_image(c,c->art->buttons+id*6400,80,80,x,y,size,size,0,255);
 }
 /* Seven roomy rows with three fully visible at rest; keep the focused row fully visible. */
-#define FX_SETTINGS_MAX_SCROLL 464.f
-static float fx_settings_scroll_target(int row) {return fx_clamp(row-2.f,0,4)*116.f;}
+#define FX_SETTINGS_ROWS 10
+#define FX_SETTINGS_MAX_SCROLL 812.f
+static float fx_settings_scroll_target(int row) {return fx_clamp(row-2.f,0,FX_SETTINGS_ROWS-3)*116.f;}
 static void fx_motion_step(struct fx_view *v,float ms) {
     float target=(float)v->tile;
     v->tile_mix=target+(v->tile_mix-target)*expf(-fx_clamp(ms,0,100)/65.f);
@@ -314,7 +315,7 @@ static void fx_static_scene(struct fx_canvas *c,int settings) {
         fx_image(c,c->art->logo,480,158,63,477,276,91,0,220);
         fx_round(c,380,96,834,529,23,FX_COLOR(9,23,41),244);
         fx_text(c,414,116,"Settings",2,FX_WHITE);
-        fx_text(c,417,172,"Graphics, on-screen debug and console sounds.",0,FX_MUTED);
+        fx_text(c,417,172,"Graphics, renderer, on-screen debug and sound.",0,FX_MUTED);
     }
     fx_footer(c);
     fx_hint(c,210,689,"B","Back");fx_hint(c,950,689,"+","Exit");fx_hint(c,1084,689,"H","HOME");
@@ -348,9 +349,9 @@ static void fx_credits_scene(struct fx_canvas *c,int page) {
         fx_text(c,446,553,"Full attribution and licenses: THIRD_PARTY.md",3,FX_MUTED);
         fx_text(c,446,576,"Unofficial project. Supply your own PES 2013 PC v1.0.",3,FX_MUTED);
     }else{
-        const char *title[]={FX_RELEASE "  /  Glass & identity","v3.1  /  Lighter, focused navigation","v3  /  Console experience"};
-        const char *a[]={"Animated splash, translucent launch panel, Credits.","Cached rendering, focus-only glow, slower light cycle.","Scrollable settings, sounds and on-screen timestamp."};
-        const char *b[]={"Original SFX + ambient music, and four previous logs.","A quieter menu with a dedicated launch screen.","Rounded HD artwork, battery and Last played."};
+        const char *title[]={FX_RELEASE "  /  Lighter CPU polling","v3.3  /  Renderer choices","v3.1  /  Console navigation"};
+        const char *a[]={"Lower polling overhead with the same game clock.","DXVK 3.1.1 or 2.7.1 async, saved in Settings.","Focus-only glow, menu audio and on-screen timestamp."};
+        const char *b[]={"Shared yield timing and per-thread statistics.","Smaller JIT blocks for the cold-start trial.","Rounded artwork, battery and Last played."};
         for(int i=0;i<3;i++){
             int y=266+i*106;
             fx_text(c,446,y,title[i],1,FX_WHITE);
@@ -497,23 +498,23 @@ static void fx_render(struct fx_canvas *c,const struct fx_view *v) {
         snprintf(status,sizeof(status),"%s  /  16:9  /  VSync ON",fx_preset_names[v->selected]);
         fx_text(c,643,623,status,0,FX_MUTED);
     }else{
-        char position[16];snprintf(position,sizeof(position),"%d / 7",v->row+1);
+        char position[16];snprintf(position,sizeof(position),"%d / %d",v->row+1,FX_SETTINGS_ROWS);
         fx_text(c,1116,135,position,0,FX_MUTED);
         /* Clip every primitive, including text/glow, inside the scroll viewport. */
         c->clip_top=204;c->clip_bottom=560;
-        for(i=0;i<7;i++){
+        for(i=0;i<FX_SETTINGS_ROWS;i++){
             int on=v->row==i;y=216+i*116-(int)lroundf(v->settings_scroll);
             if(y+118<c->clip_top||y-18>=c->clip_bottom)continue;
             if(on)fx_glass(c,412,y,766,100,14,v->frame,0);
             else fx_round(c,412,y,766,100,14,FX_COLOR(12,25,39),255);
             if(on)fx_focus(c,412,y,766,100,14,v->frame);
-            fx_text(c,435,y+20,i<4?fx_preset_names[i]:i==4?"Debug timestamp":i==5?"Menu sounds":"Background music",1,FX_WHITE);
-            fx_text(c,437,y+61,i<4?fx_preset_details[i]:i==4?"On-screen stopwatch while you play":i==5?"Soft sounds for navigation and actions":"Original ambient loop in the launcher",0,FX_MUTED);
-            if(i<4&&v->selected==i){
+            fx_text(c,435,y+20,i<4?fx_preset_names[i]:i==4?"Debug timestamp":i==5?"Menu sounds":i==6?"Background music":i<9?fx_renderer_names[i-7]:"Frame generation",1,FX_WHITE);
+            fx_text(c,437,y+61,i<4?fx_preset_details[i]:i==4?"On-screen stopwatch while you play":i==5?"Soft sounds for navigation and actions":i==6?"Original ambient loop in the launcher":i==7?"Default renderer  /  Applies on next launch":i==8?"Async shader compilation  /  Alternative renderer":"Experimental  /  Extra GPU work  /  Next launch",0,FX_MUTED);
+            if((i<4&&v->selected==i)||(i>=7&&i<9&&v->renderer==i-7)){
                 fx_round(c,1060,y+35,95,29,14,FX_COLOR(18,98,132),255);
-                fx_center(c,1107,y+38,"ACTIVE",0,FX_WHITE);
-            }else if(i>=4){
-                int value=i==4?v->timestamp:i==5?v->sound:v->music;
+                fx_center(c,1107,y+38,i>=7?"SELECTED":"ACTIVE",3,FX_WHITE);
+            }else if((i>=4&&i<7)||i==9){
+                int value=i==4?v->timestamp:i==5?v->sound:i==6?v->music:v->frame_generation;
                 fx_round(c,1080,y+34,72,32,16,value?FX_COLOR(21,144,208):FX_COLOR(50,61,76),255);
                 fx_circle(c,value?1136:1096,y+50,12,FX_WHITE);
             }
@@ -525,12 +526,12 @@ static void fx_render(struct fx_canvas *c,const struct fx_view *v) {
         }
         c->clip_top=c->clip_bottom=0;
         fx_round(c,1194,216,3,332,1,FX_COLOR(32,51,70),255);
-        int thumb=(int)(332.f*332.f/796.f);
+        int thumb=(int)(332.f*332.f/(FX_SETTINGS_ROWS*116.f-16.f));
         int thumb_y=216+(int)((332-thumb)*v->settings_scroll/FX_SETTINGS_MAX_SCROLL);
         fx_round(c,1194,thumb_y,3,thumb,1,FX_COLOR(45,142,202),255);
         fx_text(c,418,589,v->saved?"Settings saved. Ready to play.":"16:9 widescreen  /  VSync ON",0,v->saved?FX_BLUE:FX_MUTED);
     }
-    fx_hint(c,56,689,"A",v->screen==FX_SETTINGS?(v->row>=4?"Toggle":"Apply"):"Select");
+    fx_hint(c,56,689,"A",v->screen==FX_SETTINGS?(((v->row>=4&&v->row<7)||v->row==9)?"Toggle":"Apply"):"Select");
     if(v->screen==FX_FAILED){
         int failed=v->screen==FX_FAILED;uint32_t accent=failed?FX_COLOR(255,142,138):FX_BLUE;
         fx_rect(c,0,0,FX_W,FX_H,FX_COLOR(1,7,17),202);

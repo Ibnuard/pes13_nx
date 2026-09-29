@@ -15,6 +15,7 @@ def main():
         f.setnchannels(1);f.setsampwidth(2);f.setframerate(48000);f.writeframes(payload[12:])
     code='''#include <assert.h>
 #include "src/runtime/fextendo_presets.h"
+#include "src/runtime/fextendo_renderers.h"
 #include "src/runtime/fextendo_ui.h"
 int main(int argc,char **argv) {
     assert(argc==2);struct fx_art art;assert(fx_art_load(&art,argv[1]));

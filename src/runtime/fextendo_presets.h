@@ -86,6 +86,20 @@ static int fx_background_music_save(const char *root,int on) {
     char p[768];snprintf(p,sizeof(p),"%s/launcher/background-music.txt",root);
     return fx_write(p,on?"1\n":"0\n",2);
 }
+static int fx_frame_generation(const char *root) {
+    char p[768],b[3];snprintf(p,sizeof(p),"%s/launcher/frame-generation.txt",root);
+    return fx_read(p,b,sizeof(b))==2&&b[0]=='1'&&b[1]=='\n';
+}
+static int fx_frame_generation_save(const char *root,int on) {
+    char p[768],tmp[776];snprintf(p,sizeof(p),"%s/launcher/frame-generation.txt",root);
+    snprintf(tmp,sizeof(tmp),"%s.tmp",p);
+    if(!fx_write(tmp,on?"1\n":"0\n",2)||rename(tmp,p)){unlink(tmp);return 0;}
+    return 1;
+}
+static int fx_lossless_available(const char *root) {
+    char p[768];struct stat st;snprintf(p,sizeof(p),"%s/lsfg/Lossless.dll",root);
+    return !stat(p,&st)&&S_ISREG(st.st_mode)&&st.st_size>0;
+}
 static uint64_t fx_last_played(const char *root) {
     char path[768],text[32];snprintf(path,sizeof(path),"%s/launcher/last-played.txt",root);
     size_t n=fx_read(path,text,sizeof(text));uint64_t value=0;

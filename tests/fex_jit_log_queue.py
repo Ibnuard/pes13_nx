@@ -35,6 +35,8 @@ static void log_line(const char* fmt,...) {
   writes++;
 }
 '''
+    if 'fex_short_enqueue_text(msg)' in text:
+        pre += 'static int fex_short_enqueue_text(const char *text){(void)text;return 0;}\n'
     pre += '#include "'+str(ROOT/'src/runtime/fex_jit_log_queue.h')+'"\n'
     pre += '#include "'+str(ROOT/'src/runtime/fex_warm_log.h')+'"\n'
     pre += 'static __thread int fex_log_metrics_batch;\n'+function(text,'fex_log_should_flush')
@@ -128,7 +130,9 @@ class Model(NativeModel):
         else:
             super().hook(vm,pc,size,user)
 
-    def trace(self, text, running=True, control=False):
+    def trace(self, text, running=True, control=False, short=False):
+        if "fex_short_enabled" in self.symbols:
+            self.vm.mem_write(self.symbols["fex_short_enabled"],int(short).to_bytes(4,"little"))
         self.vm.mem_write(self.symbols['log_flusher_running'],int(running).to_bytes(4,'little'))
         if 'fex_jitlog_sync' in self.symbols:
             self.vm.mem_write(self.symbols['fex_jitlog_sync'],int(control).to_bytes(4,'little'))
@@ -154,6 +158,13 @@ def main():
     for msg in ('[EXC] fault','[FEX3-JIT] v1 init','[FEX3-FAULT] STOP'):
         before=m.direct;m.trace(msg);assert m.direct==before+1
     before=m.direct;m.trace(line,running=False);m.trace(line,control=True);assert m.direct==before+2
+    if 'fex_short_enabled' in m.symbols:
+        for msg in ('[FEX3-JIT-THREAD] tid=4','[FEX3-JIT-SLOW] tid=4','[FEX3-JIT-CLOCK] origin_tick=1'):
+            before=m.direct
+            m.trace(msg,running=False,control=True,short=False)
+            assert m.direct==before
+            m.trace(msg,short=True)
+            assert m.direct==before
     text=(args.source/'wine-nx-probe/source/runtime.c').read_text()
     flusher=function(text,'log_flusher')
     assert flusher.index('fex_log_metrics_batch = 1') < flusher.index('fex_jitlog_drain()') < flusher.index('fex_log_metrics_batch = 0')

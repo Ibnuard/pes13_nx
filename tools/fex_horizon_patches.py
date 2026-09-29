@@ -255,6 +255,17 @@ def apply(source, project, output):
             'uintptr_t ContextImpl::CompileBlock(FEXCore::Core::CpuStateFrame* Frame, uint64_t GuestRIP, uint64_t MaxInst) {\n'
             '  PES13FexJitReportScope HorizonReport;\n'
             '  PES13FexJitScope HorizonDispatchTiming{0};')
+    # Cache-OFF was still locking/searching ImageTracker for every cold compile.
+    # Region is consumed only by disk cache and CodeMapWriter below; debug/JIT
+    # naming and SMC validation use their own lookups and remain unchanged.
+    replace(name, '  std::optional<ExecutableFileSectionInfo> Region = SyscallHandler->LookupExecutableFileSection(Thread, GuestRIP);',
+            '  const std::optional<ExecutableFileSectionInfo> Region =\n'
+            '    (DiskCache.IsReadingDiskCache() || DiskCache.IsWritingDiskCache() || CodeMapWriter)\n'
+            '      ? SyscallHandler->LookupExecutableFileSection(Thread, GuestRIP) : std::nullopt;')
+    replace(name, '    Hit = DiskCache.Lookup(Thread, Region, GuestRIP, DiskCacheGuestCodeKey);',
+            '    if (DiskCache.IsReadingDiskCache()) {\n'
+            '      Hit = DiskCache.Lookup(Thread, Region, GuestRIP, DiskCacheGuestCodeKey);\n'
+            '    }')
     name = 'Source/Windows/Common/InvalidationTracker.cpp'
     replace(name, '#include "horizon_host.h"', '#include "horizon_host.h"\n#include "horizon_jit_timing.h"')
     replace(name, 'void InvalidationTracker::InvalidateIntervalInternalLocked(uint64_t Address, uint64_t Size) {',
@@ -262,6 +273,11 @@ def apply(source, project, output):
             '  PES13FexJitScope HorizonInvalidateTiming{2};')
 
     name = 'FEXCore/Source/Interface/Core/LookupCache.h'
+    # Mix the page/module bits into the resident L1 index. The old low-RIP
+    # index aliases blocks 64 KiB apart. Retain full guest tags, allocation,
+    # locks, invalidation and L2/L3 fallback; all producers and probes agree.
+    replace(name, '[Address & L1PointerMask]', '[(Address ^ (Address >> 16)) & L1PointerMask]', count=2)
+    replace(name, '[GuestAddress & L1PointerMask]', '[(GuestAddress ^ (GuestAddress >> 16)) & L1PointerMask]')
     # Disabled L2 uses a fully resident, zeroed 1 MiB native allocation.
     # Dynamic sizing cannot return any of it to Horizon; starting at 128 KiB
     # only adds collisions, clock calls and periodic clears on the hot path.
@@ -297,8 +313,8 @@ def apply(source, project, output):
             '  static std::atomic<bool> Reported {false};\n'
             '  if (!Reported.exchange(true, std::memory_order_relaxed))\n'
             '    PES13FexLog(DisableL2Cache()\n'
-            '      ? "[FEX3-LOOKUP] v2 dispatcher=L1-first L2=off native=1 MiB/thread; full resident L1"\n'
-            '      : "[FEX3-LOOKUP] v2 dispatcher=L1-first L2=on full guest index; L2=16 MiB L1<=1 MiB");')
+            '      ? "[FEX3-LOOKUP] v3 index=rip-xor-rip16 dispatcher=L1-first L2=off native=1 MiB/thread; full resident L1"\n'
+            '      : "[FEX3-LOOKUP] v3 index=rip-xor-rip16 dispatcher=L1-first L2=on full guest index; L2=16 MiB L1<=1 MiB");')
     replace(name, '                                  ctx->Config.VirtualMemSize / FEXCore::Utils::FEX_PAGE_SIZE * 8 + CODE_SIZE);',
             '                                  IndexSize + BackingSize);')
     replace(name, '  PageMemory = PagePointer + ctx->Config.VirtualMemSize / FEXCore::Utils::FEX_PAGE_SIZE * 8;',
@@ -355,7 +371,8 @@ def apply(source, project, output):
   // follows the upstream L2/L3 and compilation/invalidation path.
   ARMEmitter::ForwardLabel HorizonL1Miss;
   ldp<ARMEmitter::IndexType::OFFSET>(TMP1, TMP2, STATE, offsetof(FEXCore::Core::CpuStateFrame, State.L1Pointer));
-  and_(ARMEmitter::Size::i64Bit, TMP2, TMP2, RipReg.R(), ARMEmitter::ShiftType::LSL,
+  eor(ARMEmitter::Size::i64Bit, TMP4, RipReg.R(), RipReg.R(), ARMEmitter::ShiftType::LSR, 16);
+  and_(ARMEmitter::Size::i64Bit, TMP2, TMP2, TMP4, ARMEmitter::ShiftType::LSL,
        FEXCore::ilog2(sizeof(LookupCache::LookupCacheEntry)));
   add(TMP1, TMP1, TMP2);
   ldp<ARMEmitter::IndexType::OFFSET>(TMP4, TMP2, TMP1, 0);
@@ -365,6 +382,11 @@ def apply(source, project, output):
   br(TMP4);
   (void)Bind(&HorizonL1Miss);
 ''')
+    name = 'FEXCore/Source/Interface/Core/JIT/BranchOps.cpp'
+    replace(name,
+            '    and_(ARMEmitter::Size::i64Bit, TMP2, TMP2, RipReg, ARMEmitter::ShiftType::LSL, FEXCore::ilog2(sizeof(LookupCache::LookupCacheEntry)));',
+            '    eor(ARMEmitter::Size::i64Bit, TMP3, RipReg, RipReg, ARMEmitter::ShiftType::LSR, 16);\n'
+            '    and_(ARMEmitter::Size::i64Bit, TMP2, TMP2, TMP3, ARMEmitter::ShiftType::LSL, FEXCore::ilog2(sizeof(LookupCache::LookupCacheEntry)));')
 
     # Wine's desktop path commits the complete reservation on first touch.
     # Horizon must commit only a bounded part of the tracked cache interval,

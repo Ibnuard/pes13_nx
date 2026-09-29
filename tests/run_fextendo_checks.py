@@ -6,7 +6,7 @@ import argparse,json,subprocess,sys
 ROOT=Path(__file__).resolve().parents[1]
 def main():
     p=argparse.ArgumentParser();p.add_argument('--python',required=True);p.add_argument('--source',type=Path,required=True)
-    p.add_argument('--work',type=Path,default=ROOT/'local/fex3/fextendo');a=p.parse_args();w=a.work.resolve();s=a.source.resolve()
+    p.add_argument('--module',type=Path,default=ROOT/'local/fex3/emit-vsync/module/libwow64fex.dll');p.add_argument('--work',type=Path,default=ROOT/'local/fex3/fextendo');a=p.parse_args();w=a.work.resolve();s=a.source.resolve()
     elf=w/'runtime/reference/pes13-fex.elf'
     specs=[('cores','fex_worker_cores.py','sleep-deadline'),('launcher','fextendo_launcher.py',None),
            ('gap','fex_gap_probe.py',None),('balance','fex_balance_stable.py','yield-burst'),
@@ -19,7 +19,7 @@ def main():
     def run(spec):
         name,script,before=spec;cmd=[a.python,'-B',str(ROOT/'tests'/script)]
         if name=='launcher':cmd+=['--work',str(w),'--source',str(s)]
-        elif name=='unwind':cmd+=list(map(str,[w/'runtime/payload/ntdll.dll',ROOT/'local/fex3/emit-vsync/module/libwow64fex.dll',w/'runtime/payload/wow64.dll']))+['--elf',str(elf)]
+        elif name=='unwind':cmd+=list(map(str,[w/'runtime/payload/ntdll.dll',a.module,w/'runtime/payload/wow64.dll']))+['--elf',str(elf)]
         else:
             cmd+=[str(elf)]
             if before:cmd+=['--before',str(ROOT/f'local/fex3/{before}/runtime/reference/pes13-fex.elf')]

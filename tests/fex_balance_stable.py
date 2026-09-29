@@ -7,6 +7,8 @@ import subprocess
 import tempfile
 
 from fex_worker_cores import Model
+from fex_resume_gate import function
+from fextendo_source_normalization import undo_polling
 
 ROOT = Path(__file__).resolve().parents[1]
 CASE = [(208,1),(125,2),(10,0),(47,2),(32,0),(229,0),
@@ -104,8 +106,20 @@ def main():
     # Yield function has been restored byte-for-byte at source level.
     old_patches=json.loads((ROOT/'local/fex3/yield-burst/runtime/wine-patches.json').read_text())
     sync=args.source/'dlls/ntdll/unix/sync.c'
-    assert hashlib.sha256(sync.read_bytes()).hexdigest()==old_patches['native-source']['dlls/ntdll/unix/sync.c']
-    sources=['tests/fex_balance_stable.py','tests/fex_worker_cores.py','tests/fex_reservations.py',
+    sync_text, _ = undo_polling(sync.read_text(), ROOT, 'dlls/ntdll/unix/sync.c')
+    if 'static NTSTATUS WINAPI fex_short_NtWaitForAlertByThreadId' in sync_text:
+        # Remove only the new wrappers, then require exact original-file hash.
+        # The original wait/alert bodies (including timeout policy) stay intact.
+        for name in ('NtAlertThreadByThreadId','NtWaitForAlertByThreadId'):
+            start=sync_text.index('\nextern '+('void wine_nx_fex_short_alert' if name=='NtAlertThreadByThreadId' else 'uint64_t wine_nx_fex_short_wait_begin'))
+            public=function(sync_text.replace('NTSTATUS WINAPI '+name+'(', 'static NTSTATUS WINAPI '+name+'('),name).removeprefix('static ')
+            end=sync_text.index(public,start)+len(public)+1
+            assert sync_text[end-1]=='\n'
+            assert sync_text[start-1]=="\n"
+            sync_text=sync_text[:start-1]+sync_text[end:]
+            sync_text=sync_text.replace('static NTSTATUS WINAPI fex_short_'+name+'(', 'NTSTATUS WINAPI '+name+'(',1)
+    assert hashlib.sha256(sync_text.encode()).hexdigest()==old_patches['native-source']['dlls/ntdll/unix/sync.c']
+    sources=['tests/fex_balance_stable.py','tests/fextendo_source_normalization.py','tools/fex_polling_patches.py','tests/fex_worker_cores.py','tests/fex_reservations.py',
              'tests/fex_resume_gate.py','src/runtime/fex_balance_stable.h','tools/fex_balance_stable_patches.py']
     report={'passed':True,'hardware_tested':False,
             'native_elf_sha256':hashlib.sha256(args.elf.read_bytes()).hexdigest(),
@@ -114,7 +128,7 @@ def main():
                       'Linked ARM64 baseline makes 7 moves; candidate makes 1 and publishes server mask',
                       'Steady load converges; secondary core relieved despite dominant fixed thread',
                       'Control reproduces old moves; failed placement publishes nothing; disabled/fixed stay untouched',
-                      'Generated sync.c identical to smoother yield-burst checkpoint'],
+                      'Generated sync.c matches yield-burst after removing only diagnostic wrappers; original bodies unchanged'],
             'source_hashes':{p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in sources},
             'generated_source_hashes':{p:hashlib.sha256((args.source/p).read_bytes()).hexdigest() for p in
                  ['dlls/ntdll/unix/sync.c','wine-nx-probe/source/thread_profile.c','wine-nx-probe/source/runtime.c']}}

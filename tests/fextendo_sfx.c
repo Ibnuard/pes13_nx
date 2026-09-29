@@ -8,6 +8,7 @@
 #include <math.h>
 #include <time.h>
 #include "../src/runtime/fextendo_presets.h"
+#include "../src/runtime/fextendo_renderers.h"
 typedef uint32_t u32;typedef int Result;
 #define R_FAILED(x) ((x)!=0)
 #define R_SUCCEEDED(x) ((x)==0)

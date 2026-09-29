@@ -2,7 +2,7 @@
 
 def apply(read,replace,project):
     name='wine-nx-probe/source/runtime.c'
-    headers=('fextendo_logs.h','fextendo_presets.h','fextendo_ui.h','fextendo_timestamp_pixels.h','fextendo_overlay_layer.h','fextendo_display.h','fextendo_timestamp.h','fextendo_sfx.h','fextendo_launcher.h')
+    headers=('fextendo_logs.h','fextendo_presets.h','fextendo_renderers.h','fextendo_ui.h','fextendo_timestamp_pixels.h','fextendo_overlay_layer.h','fextendo_display.h','fextendo_timestamp.h','fextendo_sfx.h','fextendo_launcher.h')
     body='\n'.join((project/'src/runtime'/p).read_text() for p in headers)
     replace(name,'static void log_line(const char *fmt, ...);','static void log_line(const char *fmt, ...);\n'+body)
     replace(name,'    log_file = fopen( RUNTIME_DIR "/fex-runtime.log", "w" );',

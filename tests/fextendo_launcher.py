@@ -11,7 +11,7 @@ def main():
     receipt=json.loads((work/'runtime/runtime-build.json').read_text())
     assert receipt['launcher'] and receipt['gap_audit'] and not receipt['yield_adaptive']
     generated=(a.source/'wine-nx-probe/source/runtime.c').read_text()
-    headers=['src/runtime/fextendo_'+n+'.h' for n in ('presets','ui','launcher','timestamp_pixels','timestamp','overlay_layer','sfx','logs','display')]
+    headers=['src/runtime/fextendo_'+n+'.h' for n in ('presets','renderers','ui','launcher','timestamp_pixels','timestamp','overlay_layer','sfx','logs','display')]
     for n in headers:
         assert (ROOT/n).read_text() in generated,n
         assert receipt['patch_sources'][n]==sha(ROOT/n),n
@@ -29,12 +29,12 @@ def main():
         tmp=Path(d);root=tmp/'root';shutil.copytree(work/'package/switch/pes13-fex/launcher',root/'launcher')
         shutil.copytree(ROOT/'config/fextendo/presets',root/'launcher/presets',dirs_exist_ok=True)
         (root/'launcher/selected.txt').write_text('0\n')
-        for name in ('ui','preset_failures','lifecycle','timestamp','sfx','logs','display'):
+        for name in ('ui','renderers','preset_failures','lifecycle','timestamp','sfx','logs','display'):
             exe=tmp/name
             subprocess.run(['clang','-std=c11','-O1','-D_POSIX_C_SOURCE=200809L','-fsanitize=address,undefined',
                             '-fno-sanitize-recover=all','-g','-Wall','-Wextra',str(ROOT/f'tests/fextendo_{name}.c'),'-o',str(exe)],check=True)
             if name=='ui':commands=[[str(exe),str(root),str(preview)]]
-            elif name=='preset_failures':commands=[[str(exe),str(root)]]
+            elif name in ('preset_failures','renderers'):commands=[[str(exe),str(root)]]
             elif name=='logs':
                 logdir=tmp/'log-rotation';logdir.mkdir();commands=[[str(exe),str(logdir)]]
             elif name=='display':commands=[[str(exe)]]
@@ -44,13 +44,13 @@ def main():
                 # The corruption test deliberately damaged one template.
                 shutil.copytree(ROOT/'config/fextendo/presets',root/'launcher/presets',dirs_exist_ok=True)
                 game=tmp/'pes2013.exe';game.write_bytes(b'MZ')
-                commands=[[str(exe),str(root),str(game if mode!=2 else tmp/'missing.exe'),str(mode)] for mode in range(7)]
+                commands=[[str(exe),str(root),str(game if mode!=2 else tmp/'missing.exe'),str(mode)] for mode in range(12)]
             for command in commands:
                 r=subprocess.run(command,check=True,capture_output=True,text=True,timeout=45)
                 records.append(r.stdout.strip());print(r.stdout.strip(),flush=True)
     names=headers+['tools/fextendo_launcher_patches.py','tools/build-fextendo-assets.py','tools/make-fextendo-presets.py',
                    'tests/fextendo_launcher.py','tests/fextendo_ui.c','tests/fextendo_preset_failures.c','tests/fextendo_lifecycle.c',
-                   'tests/fextendo_timestamp.c','tests/fextendo_sfx.c','tests/fextendo_logs.c','tests/fextendo_display.c']
+                   'tests/fextendo_renderers.c','tests/fextendo_timestamp.c','tests/fextendo_sfx.c','tests/fextendo_logs.c','tests/fextendo_display.c']
     report={'passed':True,'hardware_tested':False,'native_elf_sha256':receipt['native_elf_sha256'],
             'nro_sha256':receipt['nro_sha256'],'source_hashes':{n:sha(ROOT/n) for n in names},'checks':records,
             'generated_source_sha256':sha(a.source/'wine-nx-probe/source/runtime.c'),

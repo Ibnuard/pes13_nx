@@ -5,9 +5,10 @@
 #include <time.h>
 #include <stdlib.h>
 #include <stdarg.h>
-static int mode;
-#define FX_SPLASH_MS (mode>=5?2400:0)
+static int mode,preparing_renderer;
+#define FX_SPLASH_MS ((mode==5||mode==6)?2400:0)
 #include "../src/runtime/fextendo_presets.h"
+#include "../src/runtime/fextendo_renderers.h"
 #include "../src/runtime/fextendo_ui.h"
 typedef uint64_t u64;typedef uint32_t u32;typedef int Result;
 typedef struct {int index;} PadState;
@@ -38,7 +39,7 @@ static u64 armGetSystemTick(void){struct timespec t;clock_gettime(CLOCK_MONOTONI
 static u64 armTicksToNs(u64 t){return t;}
 static u64 armNsToTicks(u64 t){return t;}
 static void svcSleepThread(u64 n){struct timespec t={n/1000000000,n%1000000000};nanosleep(&t,0);}
-static int appletMainLoop(void){return 1;}
+static int appletMainLoop(void){return !(mode==8&&__atomic_load_n(&preparing_renderer,__ATOMIC_ACQUIRE));}
 static void *nwindowGetDefault(void){return NULL;}
 static int framebufferCreate(Framebuffer *f,void *w,int x,int y,int format,int count){
     (void)w;(void)format;(void)count;assert(!created++);f->owner=pthread_self();f->pixels=calloc(x*y,4);assert(f->pixels);return 0;
@@ -53,6 +54,15 @@ static void trace_view(int frame);
 static unsigned splash_seen;static int credits_seen,changelog_seen;
 static void padUpdate(PadState *p){p->index++;trace_view(p->index);}
 static u64 padGetButtonsDown(PadState *p){
+    if(mode==9||mode==10||mode==11){
+        static const u64 input[]={HidNpadButton_Right,HidNpadButton_A,HidNpadButton_Up,HidNpadButton_A,HidNpadButton_B,0,HidNpadButton_Plus};
+        return p->index<7?input[p->index]:0;
+    }
+    if(mode==8)return p->index==0?HidNpadButton_A:0;
+    if(mode==7){
+        static const u64 input[]={HidNpadButton_Right,HidNpadButton_A,HidNpadButton_Up,0,HidNpadButton_Up,HidNpadButton_A,HidNpadButton_B,HidNpadButton_Plus};
+        return p->index<8?input[p->index]:0;
+    }
     if(mode==4){
         static const u64 input[]={HidNpadButton_Right,0,HidNpadButton_Right,HidNpadButton_A,HidNpadButton_R,HidNpadButton_L,HidNpadButton_B,HidNpadButton_Plus};
         return p->index<8?input[p->index]:0;
@@ -60,8 +70,8 @@ static u64 padGetButtonsDown(PadState *p){
     if(mode==5)return p->index==2?HidNpadButton_A:p->index==8?HidNpadButton_Plus:0;
     if(mode==6)return splash_seen&&p->index>155?HidNpadButton_Plus:0;
     if(mode==3){
-        static const u64 input[]={HidNpadButton_Right,HidNpadButton_A,HidNpadButton_Up,0,HidNpadButton_Up,0,HidNpadButton_Up,HidNpadButton_A,HidNpadButton_B,0,HidNpadButton_Plus};
-        return p->index<11?input[p->index]:0;
+        static const u64 input[]={HidNpadButton_Right,HidNpadButton_A,HidNpadButton_Up,0,HidNpadButton_Up,0,HidNpadButton_Up,0,HidNpadButton_Up,0,HidNpadButton_Up,0,HidNpadButton_Up,HidNpadButton_A,HidNpadButton_B,0,HidNpadButton_Plus};
+        return p->index<17?input[p->index]:0;
     }
     if(mode==1)return p->index==0?HidNpadButton_Plus:0;
     if(mode==2)return p->index==0||p->index==2?HidNpadButton_A:p->index==4?HidNpadButton_Plus:0;
@@ -85,20 +95,46 @@ static int psmGetBatteryChargePercentage(u32 *n){*n=82;return 0;}
 static int psmGetChargerType(PsmChargerType *t){*t=0;return 0;}
 static void fx_timestamp_start(void){}
 static void fx_timestamp_arm(int on,uint64_t t){(void)on;(void)t;}
+static int test_apply_renderer(const char *root,int selected){
+    if(mode==8){__atomic_store_n(&preparing_renderer,1,__ATOMIC_RELEASE);svcSleepThread(100000000);}
+    return fx_apply_renderer(root,selected);
+}
+#define WINE_NX_LSFG 1
+int wine_nx_lsfg_available(void){return mode!=11;}
+const char *wine_nx_lsfg_unavailable_reason(void){return "Lossless.dll lacks compatible SPIR-V shaders; update your Steam copy";}
+void wine_nx_lsfg_configure(int enabled,int performance,int flow){assert(!enabled);assert(performance==1&&flow==1);}
+#define fx_apply_renderer test_apply_renderer
 #include "../src/runtime/fextendo_launcher.h"
+#undef fx_apply_renderer
 static void trace_view(int frame){
     if(fx_ui_view.splash_ms>splash_seen)splash_seen=fx_ui_view.splash_ms;
     if(fx_ui_view.screen==FX_CREDITS){credits_seen=1;if(fx_ui_view.credit_page)changelog_seen=1;}
-    if(mode>=5&&frame>5)assert(!fx_boot_started);
+    if((mode==5||mode==6)&&frame>5)assert(!fx_boot_started);
 }
 
 int main(int argc,char **argv){
     assert(argc==4);test_root=argv[1];test_target=argv[2];mode=atoi(argv[3]);
-    if(mode==3)assert(fx_apply_preset(test_root,0));
+    if(mode==9||mode==10||mode==11){
+        assert(fx_apply_preset(test_root,0));assert(fx_frame_generation_save(test_root,0));
+        char p[768];snprintf(p,sizeof(p),"%s/lsfg",test_root);assert(!mkdir(p,0755)||errno==EEXIST);
+        snprintf(p,sizeof(p),"%s/lsfg/Lossless.dll",test_root);
+        if(mode==9){unlink(p);assert(!fx_lossless_available(test_root));}
+        else assert(fx_write(p,"fixture",7));
+    }
+    if(mode==3||mode==7)assert(fx_apply_preset(test_root,0));
+    if(mode==7){assert(fx_renderer_save(test_root,0));assert(fx_apply_renderer(test_root,0));}
     if(mode){assert(!fx_launcher_start());assert(!fx_owned());assert(closed==1);assert(!fx_ui_created);
+        if(mode==9||mode==11){assert(!fx_ui_view.frame_generation&&!fx_frame_generation(test_root));}
+        if(mode==10){assert(fx_ui_view.frame_generation&&fx_frame_generation(test_root));assert(!fx_boot_started);}
         if(mode==3){assert(fx_ui_view.timestamp);assert(fx_debug_timestamp(test_root));assert(fx_ui_view.screen==FX_HOME);}
         if(mode==4){assert(credits_seen&&changelog_seen);assert(fx_ui_view.screen==FX_HOME&&fx_ui_view.tile==2);assert(!fx_boot_started);}
-        if(mode>=5){assert(splash_seen>2000);assert(!fx_ui_view.splash_ms);assert(!fx_boot_started);}}
+        if(mode==8){assert(preparing_renderer);assert(!fx_boot_started);}
+        if(mode==7){
+            assert(fx_ui_view.renderer==1&&fx_renderer_selected(test_root)==1);
+            char p[768],b[2];snprintf(p,sizeof(p),"%s/launcher/renderer.txt",test_root);
+            assert(fx_read(p,b,2)==2&&b[0]=='0'); /* no DLL installation inside menu */
+        }
+        if(mode==5||mode==6){assert(splash_seen>2000);assert(!fx_ui_view.splash_ms);assert(!fx_boot_started);}}
     else{
         assert(fx_launcher_start());assert(!sound_open);assert(fx_owned());assert(!closed);assert(fx_boot_started);
         fx_stage("Testing loading handoff...");assert(fx_handoff());assert(!fx_owned());assert(closed==1);assert(!fx_ui_created);

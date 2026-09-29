@@ -16,15 +16,19 @@ def apply(read, replace, project):
         return 'static const char ' + symbol + '[] =\n' + '\n'.join('    "' + e + '"' for e in items) + ';\n'
 
     replace(name, match.group(), environment('runtime_environment', 500) + '\n' +
-            environment('fex_jit_large_environment', 5000))
+            environment('fex_jit_large_environment', 5000) + '\n' +
+            environment('fex_jit_small_environment', 128))
     replace(name, '        environment_bytes = sizeof(runtime_environment);',
             '        environment_bytes = sizeof(runtime_environment);\n'
             '        if (wine_nx_config_file_bool(RUNTIME_DIR "/fex_jit_large", 0)) {\n'
             '            environment = fex_jit_large_environment;\n'
             '            environment_bytes = sizeof(fex_jit_large_environment);\n'
+            '        } else if (wine_nx_config_file_bool(RUNTIME_DIR \"/fex_jit_small\", 0)) {\n'
+            '            environment = fex_jit_small_environment;\n'
+            '            environment_bytes = sizeof(fex_jit_small_environment);\n'
             '        }\n'
-            '        log_line("[FEX3-JIT-LAUNCH] maxinst=%u; fex_jit_large=1 selects 5000 control",\n'
-            '                 environment == fex_jit_large_environment ? 5000u : 500u);')
+            '        log_line("[FEX3-JIT-LAUNCH] maxinst=%u; small=128 baseline=500 large=5000",\n'
+            '                 environment == fex_jit_large_environment ? 5000u : environment == fex_jit_small_environment ? 128u : 500u);')
     replace(name, '        "[FEX3-RESUME] waits="',
             '        "[FEX3-RESUME] waits=", "[FEX3-JIT] phase="')
     replace(name, '"pes13-fex3-warm-audit"', '"pes13-fex3-jit-latency"')

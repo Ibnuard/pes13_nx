@@ -21,9 +21,12 @@ extern "C" void PES13FexApplyPerformanceProfile(void) {
     // The launcher can select a latency experiment through FEX's existing
     // environment config. Keep the previous cap for every other value.
     FEX_CONFIG_OPT(RequestedMaxInst, MAXINST);
-    const bool short_blocks = profile && RequestedMaxInst() == 500;
-    Set(CONFIG_MAXINST, short_blocks ? "500" : "5000");
-    PES13FexLog(short_blocks
+    const unsigned requested = RequestedMaxInst();
+    const unsigned maxinst = profile && (requested == 128 || requested == 500) ? requested : 5000;
+    Set(CONFIG_MAXINST, maxinst == 128 ? "128" : maxinst == 500 ? "500" : "5000");
+    PES13FexLog(maxinst == 128
+        ? "[FEX3-JIT-CONFIG] maxinst=128 multiblock=1; cold-start candidate"
+        : maxinst == 500
         ? "[FEX3-JIT-CONFIG] maxinst=500 multiblock=1; latency candidate"
         : "[FEX3-JIT-CONFIG] maxinst=5000 multiblock=1; control");
     // Do not disable code invalidation, LOCK semantics, or enable CPU
