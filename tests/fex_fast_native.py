@@ -17,6 +17,23 @@ from fex_jit_native import JitModel
 from unicorn import arm64_const as arm
 
 
+class HeapCounterModel(CounterModel):
+    def hook(self, vm, pc, size, user):
+        # New linked compiler units can cause Clang to lower string-length
+        # calls to the native CRT import instead of its local inline loop.
+        if self.hooks.get(pc) == 'strlen':
+            pointer = vm.reg_read(reg(0))
+            count = 0
+            while vm.mem_read(pointer + count, 1) != b'\0':
+                count += 1
+                assert count < 65536
+            self.calls.append(('strlen', [pointer]))
+            vm.reg_write(reg(0), count)
+            vm.reg_write(arm.UC_ARM64_REG_PC, vm.reg_read(reg(30)))
+            return
+        super().hook(vm, pc, size, user)
+
+
 class NativeHeapModel(JitModel):
     def __init__(self, path):
         super().__init__(path)
@@ -103,7 +120,7 @@ def native_checks(elf):
 
 def pe_checks(dll, values):
     checks = []
-    m = CounterModel(dll, clobber_host_x18=True)
+    m = HeapCounterModel(dll, clobber_host_x18=True)
     assert m.abi == 3
     m.call('PES13FexHeapPreflight')
     assert not m.trapped and not m.heap_blocks and not m.regions and not m.calls
@@ -132,6 +149,25 @@ def pe_checks(dll, values):
     assert m.vm.mem_read(p, 64) == bytes(range(64))
     m.fail_allocations = False
     assert m.call('realloc', p, 0) == 0 and not m.heap_blocks
+    # Exercise retained capacity in the actual linked PE, including the exact
+    # 1.5x bound. A forced allocator failure must not affect a no-op shrink.
+    p = m.call('malloc', 150)
+    m.vm.mem_write(p, bytes(range(150)))
+    m.fail_allocations = True
+    for size in (150, 149, 128, 100):
+        assert m.call('realloc', p, size) == p
+        assert m.call('PES13FexHeapUsableSize', p) == 150
+        assert m.vm.mem_read(p, size) == bytes(range(size))
+    assert m.call('realloc', p, 99) == 0
+    assert m.vm.mem_read(p, 150) == bytes(range(150))
+    m.fail_allocations = False
+    smaller = m.call('realloc', p, 99)
+    assert smaller and smaller != p
+    assert m.call('PES13FexHeapUsableSize', smaller) == 99
+    assert m.vm.mem_read(smaller, 99) == bytes(range(99))
+    m.call('free', smaller)
+    assert not m.heap_blocks
+    checks.append('same-size and bounded shrink skip allocation/copy even under forced OOM; larger shrink releases old capacity')
     p = m.call('calloc', 17, 123)
     assert bytes(m.vm.mem_read(p, 17*123)) == bytes(17*123)
     m.call('free', p)
@@ -183,6 +219,9 @@ def main():
     checks = native_checks(args.native_elf)+pe_checks(args.dll, args.config_values)
     report = {'passed': True, 'dll_sha256': hashlib.sha256(args.dll.read_bytes()).hexdigest(),
               'native_elf_sha256': hashlib.sha256(args.native_elf.read_bytes()).hexdigest(),
+              'source_hashes': {str(p.relative_to(Path(__file__).resolve().parents[1])): hashlib.sha256(p.read_bytes()).hexdigest()
+                                for p in (Path(__file__).resolve(), *(Path(__file__).resolve().parent/n for n in
+                                          ('fex_counter.py', 'fex_alloc.py', 'fex_jit_native.py')))},
               'checks': checks, 'scope': __doc__, 'hardware_tested': False}
     args.output.write_text(json.dumps(report, indent=2)+'\n')
     for check in checks: print('PASS:', check)

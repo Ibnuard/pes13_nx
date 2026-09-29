@@ -8,7 +8,6 @@ import subprocess
 import tempfile
 from pathlib import Path
 from fex_gap_probe import Model
-from fextendo_source_normalization import undo_lsfg_vulkan
 
 ROOT=Path(__file__).resolve().parents[1]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
@@ -22,7 +21,6 @@ def main():
     call='    wine_nx_fex_filter_client_budget( &extensions );\n\n'
     assert text.count(header.read_text())==text.count(call)==1
     stripped=text.replace(header.read_text()+'\n','').replace(call,'')
-    stripped,lsfg_normalization=undo_lsfg_vulkan(stripped,ROOT)
     baseline=json.loads((ROOT/'local/fex3/memory-audit/runtime/wine-patches.json').read_text())
     assert hashlib.sha256(stripped.encode()).hexdigest()==baseline['native-source']['dlls/win32u/vulkan.c']
     assert text.index('physical_device->extensions = extensions;')<text.index(call)<text.index('/* filter out unsupported client device extensions */')
@@ -66,17 +64,12 @@ int main(void) {
     assert receipt['native_elf_sha256']==sha(a.elf) and receipt['memory_budget_filter']
     assert patches['native-source']['dlls/win32u/vulkan.c']==sha(source)
     assert receipt['patch_sources']['src/runtime/fex_memory_budget.h']==sha(header)
-    if lsfg_normalization['applied']:
-        assert receipt['lsfg']
-        assert receipt['patch_sources']['tools/fextendo_lsfg_patches.py']==sha(ROOT/'tools/fextendo_lsfg_patches.py')
-    paths=['tests/fex_memory_budget.py','src/runtime/fex_memory_budget.h','tools/fex_memory_budget_patches.py',
-           'tests/fextendo_source_normalization.py','tools/fextendo_lsfg_patches.py']
+    paths=['tests/fex_memory_budget.py','src/runtime/fex_memory_budget.h','tools/fex_memory_budget_patches.py']
     report={'passed':True,'hardware_tested':False,'native_elf_sha256':sha(a.elf),
-            'checks':['Removing client filter and strictly reversing LSFG edits restores memory-audit Vulkan source exactly',
+            'checks':['Removing the client filter restores memory-audit Vulkan source exactly',
                       'Host extension record preserved; switch defaults OFF before platform initialization',
                       'Actual Wine bitfield layout under sanitizers: only the budget bit changes; opt-in restores capability',
                       'Final ELF defaults OFF; source and ELF hashes match build receipt (inlined filter not emulated)'],
-            'source_hashes':{n:sha(ROOT/n) for n in paths},'generated_source_sha256':sha(source),
-            'lsfg_source_normalization':lsfg_normalization}
+            'source_hashes':{n:sha(ROOT/n) for n in paths},'generated_source_sha256':sha(source)}
     a.output.write_text(json.dumps(report,indent=2)+'\n');print('Memory budget: PASS')
 if __name__=='__main__':main()

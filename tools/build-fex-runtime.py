@@ -70,15 +70,13 @@ def main():
     parser.add_argument('--memory-budget-filter', action='store_true',help='Decline costly optional memory-budget queries on Switch')
     parser.add_argument("--short-trace", action="store_true", help="Bounded per-thread JIT/wait timing on v3.2; supports OFF control")
     parser.add_argument("--dxvk-core3", action="store_true", help="Named dxvk-cs offload trial; requires short-trace baseline")
-    parser.add_argument('--lsfg-prefix', type=Path, help='Local native LSFG backend install; feature defaults OFF in launcher')
     parser.add_argument('--polling', action='store_true', help='Sharded polling counters and shared yield timing; runtime OFF control retained')
+    parser.add_argument('--fast-api', action='store_true', help='Validated QPC/non-alertable delay gateway and bounded hotspot diagnostics')
     args = parser.parse_args()
+    if args.fast_api and not args.polling:
+        parser.error('--fast-api requires --polling')
     if args.polling and not args.dxvk_core3:
         parser.error('--polling requires --dxvk-core3')
-    if args.lsfg_prefix:
-        args.lsfg_prefix = args.lsfg_prefix.resolve()
-        if not args.dxvk_core3 or not (args.lsfg_prefix / 'lib/liblsfg-vk.a').is_file():
-            parser.error('--lsfg-prefix requires --dxvk-core3 and a built native backend')
     if args.dxvk_core3 and not args.short_trace:
         parser.error("--dxvk-core3 requires --short-trace")
     if args.short_trace and not args.memory_budget_filter:
@@ -148,7 +146,7 @@ def main():
                     jit_log_queue=args.jit_log_queue, yield_burst=args.yield_burst,
                     yield_adaptive=args.yield_adaptive, stable_balance=args.stable_balance, gap_audit=args.gap_audit, launcher=args.launcher,
                     memory_audit=args.memory_audit, memory_budget_filter=args.memory_budget_filter, short_trace=args.short_trace, dxvk_core3=args.dxvk_core3,
-                    lsfg=bool(args.lsfg_prefix), polling=args.polling)
+                    polling=args.polling, fast_api=args.fast_api)
     (evidence / 'wine-patches.json').write_text(json.dumps(patches, indent=2) + '\n')
 
     devkit = Path('/opt/devkitpro')
@@ -187,7 +185,6 @@ def main():
          '-DWINE_NX_MESA_SWITCH_DIR=' + str(mesa),
          '-DPES13_FEX_DIR=' + str(project / 'src/fex'),
          '-DPES13_LIBNX_EXCEPTION_OBJECT=' + str(exception),
-         '-DPES13_LSFG_PREFIX=' + (str(args.lsfg_prefix) if args.lsfg_prefix else ''),
          '-DCMAKE_BUILD_TYPE=Release'])
     run(['cmake', '--build', build, '--target', 'wine-nx-runtime', '-j', args.jobs])
     if native_dependencies != native_dependency_receipt(mesa, devkit):
@@ -230,8 +227,8 @@ def main():
               'memory_budget_filter': args.memory_budget_filter,
               'short_trace': args.short_trace,
               'dxvk_core3': args.dxvk_core3,
-              'lsfg': bool(args.lsfg_prefix),
               'polling': args.polling,
+              'fast_api': args.fast_api,
               'diagnostic': args.diagnostic,
               'resume_gate': args.resume_gate,
               'samecore_yield': args.samecore_yield,
@@ -340,17 +337,12 @@ def main():
     if args.dxvk_core3:
         report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
                                        for name in ('tools/fex_dxvk_core3_patches.py', 'src/runtime/fex_dxvk_core3.h')})
-    if args.lsfg_prefix:
-        report['lsfg_backend'] = {'prefix': str(args.lsfg_prefix),
-            'sha256': hashlib.sha256((args.lsfg_prefix / 'lib/liblsfg-vk.a').read_bytes()).hexdigest()}
-        lsfg_sources = ['src/runtime/fextendo_lsfg.cpp', 'src/runtime/fextendo_lsfg.h',
-                        'src/runtime/fextendo_lsfg_config.h', 'tools/fextendo_lsfg_patches.py',
-                        'tools/build-fextendo-lsfg.py']
-        lsfg_sources += [p.relative_to(project).as_posix() for p in (project / 'third_party/lsfg-horizon').rglob('*') if p.is_file()]
-        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest() for name in lsfg_sources})
     if args.polling:
         report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
             for name in ('tools/fex_polling_patches.py', 'src/runtime/fex_polling_counters.h', 'src/runtime/fex_polling_yield.h')})
+    if args.fast_api:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+            for name in ('tools/fex_fast_api_patches.py', 'src/runtime/fex_fast_api.h', 'src/runtime/fex_hot_profile.h')})
     if not args.native_only:
         pe = work / 'pe-build'
         pe.mkdir(exist_ok=True)

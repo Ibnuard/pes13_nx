@@ -54,13 +54,9 @@ static void trace_view(int frame);
 static unsigned splash_seen;static int credits_seen,changelog_seen;
 static void padUpdate(PadState *p){p->index++;trace_view(p->index);}
 static u64 padGetButtonsDown(PadState *p){
-    if(mode==9||mode==10||mode==11){
-        static const u64 input[]={HidNpadButton_Right,HidNpadButton_A,HidNpadButton_Up,HidNpadButton_A,HidNpadButton_B,0,HidNpadButton_Plus};
-        return p->index<7?input[p->index]:0;
-    }
     if(mode==8)return p->index==0?HidNpadButton_A:0;
     if(mode==7){
-        static const u64 input[]={HidNpadButton_Right,HidNpadButton_A,HidNpadButton_Up,0,HidNpadButton_Up,HidNpadButton_A,HidNpadButton_B,HidNpadButton_Plus};
+        static const u64 input[]={HidNpadButton_Right,HidNpadButton_A,HidNpadButton_Up,0,0,HidNpadButton_A,HidNpadButton_B,HidNpadButton_Plus};
         return p->index<8?input[p->index]:0;
     }
     if(mode==4){
@@ -70,7 +66,7 @@ static u64 padGetButtonsDown(PadState *p){
     if(mode==5)return p->index==2?HidNpadButton_A:p->index==8?HidNpadButton_Plus:0;
     if(mode==6)return splash_seen&&p->index>155?HidNpadButton_Plus:0;
     if(mode==3){
-        static const u64 input[]={HidNpadButton_Right,HidNpadButton_A,HidNpadButton_Up,0,HidNpadButton_Up,0,HidNpadButton_Up,0,HidNpadButton_Up,0,HidNpadButton_Up,0,HidNpadButton_Up,HidNpadButton_A,HidNpadButton_B,0,HidNpadButton_Plus};
+        static const u64 input[]={HidNpadButton_Right,HidNpadButton_A,HidNpadButton_Up,0,HidNpadButton_Up,0,HidNpadButton_Up,0,HidNpadButton_Up,0,HidNpadButton_Up,0,0,HidNpadButton_A,HidNpadButton_B,0,HidNpadButton_Plus};
         return p->index<17?input[p->index]:0;
     }
     if(mode==1)return p->index==0?HidNpadButton_Plus:0;
@@ -99,10 +95,6 @@ static int test_apply_renderer(const char *root,int selected){
     if(mode==8){__atomic_store_n(&preparing_renderer,1,__ATOMIC_RELEASE);svcSleepThread(100000000);}
     return fx_apply_renderer(root,selected);
 }
-#define WINE_NX_LSFG 1
-int wine_nx_lsfg_available(void){return mode!=11;}
-const char *wine_nx_lsfg_unavailable_reason(void){return "Lossless.dll lacks compatible SPIR-V shaders; update your Steam copy";}
-void wine_nx_lsfg_configure(int enabled,int performance,int flow){assert(!enabled);assert(performance==1&&flow==1);}
 #define fx_apply_renderer test_apply_renderer
 #include "../src/runtime/fextendo_launcher.h"
 #undef fx_apply_renderer
@@ -114,18 +106,9 @@ static void trace_view(int frame){
 
 int main(int argc,char **argv){
     assert(argc==4);test_root=argv[1];test_target=argv[2];mode=atoi(argv[3]);
-    if(mode==9||mode==10||mode==11){
-        assert(fx_apply_preset(test_root,0));assert(fx_frame_generation_save(test_root,0));
-        char p[768];snprintf(p,sizeof(p),"%s/lsfg",test_root);assert(!mkdir(p,0755)||errno==EEXIST);
-        snprintf(p,sizeof(p),"%s/lsfg/Lossless.dll",test_root);
-        if(mode==9){unlink(p);assert(!fx_lossless_available(test_root));}
-        else assert(fx_write(p,"fixture",7));
-    }
     if(mode==3||mode==7)assert(fx_apply_preset(test_root,0));
     if(mode==7){assert(fx_renderer_save(test_root,0));assert(fx_apply_renderer(test_root,0));}
     if(mode){assert(!fx_launcher_start());assert(!fx_owned());assert(closed==1);assert(!fx_ui_created);
-        if(mode==9||mode==11){assert(!fx_ui_view.frame_generation&&!fx_frame_generation(test_root));}
-        if(mode==10){assert(fx_ui_view.frame_generation&&fx_frame_generation(test_root));assert(!fx_boot_started);}
         if(mode==3){assert(fx_ui_view.timestamp);assert(fx_debug_timestamp(test_root));assert(fx_ui_view.screen==FX_HOME);}
         if(mode==4){assert(credits_seen&&changelog_seen);assert(fx_ui_view.screen==FX_HOME&&fx_ui_view.tile==2);assert(!fx_boot_started);}
         if(mode==8){assert(preparing_renderer);assert(!fx_boot_started);}

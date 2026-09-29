@@ -9,8 +9,7 @@ jalur CPU; perbaikan first-kickoff belum dikonfirmasi pada Switch.
 - Lookup kode FEX mencampur bit alamat agar blok berjarak 64 KiB tidak selalu
   bertabrakan. Kapasitas cache tetap 1 MiB/thread, JIT tetap 128. Ini menyasar
   pencarian ulang kode; tidak menghilangkan seluruh kompilasi pertama kali.
-- Backend frame generation LSFG native ditambahkan sebagai eksperimen,
-  **OFF secara default**. Dua pilihan DXVK tetap tersedia.
+- Dua pilihan DXVK tetap tersedia.
 
 Audit beserta peluang selanjutnya ada di `PERFORMANCE-AUDIT.md` dalam ZIP
 atau [dokumen audit](FEXTENDO-V3.4-PERFORMANCE-AUDIT.md) dalam repository.
@@ -34,14 +33,14 @@ atau [dokumen audit](FEXTENDO-V3.4-PERFORMANCE-AUDIT.md) dalam repository.
 
    Pertahankan balancing aktif (`no_balance=0` bila key itu ada).
 
-Paket tidak berisi game atau `Lossless.dll`; game PES13 versi 1.0 tetap
+Paket tidak berisi game; game PES13 versi 1.0 tetap
 disediakan pengguna. Save, INI, pilihan renderer, dan preferensi launcher
 tidak ditimpa. Folder `control-*`, `rollback`, `source`, `upstream`, `evidence`,
 dan `licenses` bukan isi instalasi utama.
 
 ## Tes pertama
 
-Pilih **DXVK 3.1.1**, Frame generation **OFF**, aktifkan Debug timestamp.
+Pilih **DXVK 3.1.1**, aktifkan Debug timestamp.
 Gunakan preset, OC, tim, stadion dan camera yang sama dengan tes sebelumnya.
 Mulai dari aplikasi ditutup penuh; catat T+ saat kickoff, shooting, umpan
 cepat dan bola lambung. Lanjutkan match kedua tanpa menutup aplikasi, lalu
@@ -81,24 +80,6 @@ tidak tersedia, offload tidak aktif; itu bukan tes core 3 yang valid.
 Kembali ke kandidat dengan menyalin `switch/` utama lagi dan memastikan
 nilai INI di atas. Tidak perlu menghapus cache, save, atau folder profil.
 
-## Status frame generation
-
-DLL pengguna yang diperiksa adalah **Lossless.dll 3.2.1.0**, SHA-256
-`8b7dbc11b2ea544650af2ed4ffc92da3abd88ec5afa09c36484c060fbc848834`.
-Payload yang ditemukan berupa DXBC, sedangkan backend yang dipin memerlukan
-shader SPIR-V. Karena itu DLL ini **belum kompatibel**; launcher menolak
-mengaktifkan LSFG untuk payload tersebut. Mengganti nama atau lokasi file
-tidak mengonversi format shader. Kode Windows dalam DLL tidak dieksekusi.
-
-Path untuk DLL milik pengguna yang kompatibel nantinya:
-`switch/pes13-fex/lsfg/Lossless.dll`. File tersebut tidak disertakan atau
-diunduh oleh paket. LSFG tetap OFF untuk pengukuran CPU; ia menambah beban
-GPU dan tidak memperbaiki freeze yang tidak menghasilkan frame asli.
-Sinkronisasi frame, visual dan performa backend masih memerlukan tes Switch.
-
 FEX tetap **FEX-Emu**; port Switch dan integrasi FEXTendo dikerjakan
-**AndroSwitch Project / Ibnuard**. Wine-NX/Autorun, DXVK/GPLAsync, LSFG-VK,
-dan port Horizon/Cemu-NX mempertahankan kreditnya di `THIRD_PARTY.md`.
-Source backend LSFG GPL yang dipin, perubahan dan recipe build disertakan.
-Tes host dan hash paket memverifikasi konsistensi binary/source, bukan
-jaminan first-kickoff sudah bebas stutter.
+**AndroSwitch Project / Ibnuard**. Wine-NX/Autorun dan DXVK/GPLAsync
+mempertahankan kreditnya di `THIRD_PARTY.md`.

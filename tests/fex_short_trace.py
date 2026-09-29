@@ -41,7 +41,9 @@ uint64_t pes13_fex_counter(){return clock_ticks.load();}
 uint64_t pes13_fex_counter_frequency(){return 19200000;}
 std::mutex mutex;std::vector<std::string> messages;
 void PES13FexLog(const char *line){std::lock_guard<std::mutex> lock(mutex);messages.emplace_back(line);}
-'''+body+(ROOT/'tests/fex_short_module.cpp.inc').read_text()
+'''+re.sub(r'^#include [^\n]+\n|^#pragma once\n','',
+          (ROOT/'src/fex/horizon_compile_trace.h').read_text()+'\n'+
+          (ROOT/'src/fex/module_compile_trace.cpp').read_text(),flags=re.M)+body+(ROOT/'tests/fex_short_module.cpp.inc').read_text()
         run('module',harness,'cpp')
         # Run exact generated env append: existing entries/terminators survive ON/OFF.
         start=runtime.index('    {\n        static char short_environment[8192];')
@@ -97,7 +99,7 @@ puts("PASS generated wrappers preserve statuses, errno, arguments and timeout po
     assert '[FEX3-JIT-THREAD] ' in dll.read_bytes().decode('latin1')
     records.append('Final ELF calls wait/alert/stage hooks; final FEX DLL contains per-thread records.')
     sources=['tests/fex_short_trace.py','tests/fex_short_trace.c','tests/fex_short_module.cpp.inc','src/runtime/fex_short_trace.h',
-             'src/fex/module_jit_timing.cpp','tools/fex_short_trace_patches.py']
+             'src/fex/module_jit_timing.cpp','src/fex/module_compile_trace.cpp','src/fex/horizon_compile_trace.h','tools/fex_short_trace_patches.py']
     report={'passed':True,'hardware_tested':False,'native_elf_sha256':sha(elf),'dll_sha256':sha(dll),
             'source_hashes':{n:sha(ROOT/n) for n in sources},'checks':records}
     (a.work/'short-trace.json').write_text(json.dumps(report,indent=2)+'\n')

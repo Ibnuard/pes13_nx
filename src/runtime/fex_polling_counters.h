@@ -7,13 +7,13 @@
 #define FEX_POLL_QPC 0x31u
 #define FEX_POLL_DELAY 0x34u
 int wine_nx_fex_polling = 1; /* immutable after platform startup */
-struct fex_poll_slot { _Alignas(64) unsigned count[2]; };
+struct fex_poll_slot { _Alignas(64) unsigned count[4]; };
 static struct fex_poll_slot fex_poll_slots[FEX_POLL_SLOTS];
 static unsigned fex_poll_claimed;
-struct fex_poll_local { unsigned slot, value[2], initialized; volatile unsigned busy; };
+struct fex_poll_local { unsigned slot, value[4], initialized; volatile unsigned busy; };
 static __thread struct fex_poll_local fex_poll_local;
 
-static int fex_poll_count(unsigned id)
+static int fex_poll_count_kind(unsigned id, int fast)
 {
     if (!wine_nx_fex_polling || (id != FEX_POLL_QPC && id != FEX_POLL_DELAY)) return 0;
     struct fex_poll_local *local = &fex_poll_local;
@@ -32,8 +32,22 @@ static int fex_poll_count(unsigned id)
     /* Only this producer writes its slot. Atomic stores allow concurrent
      * snapshots without read-modify-write contention or delayed tail flushes. */
     __atomic_store_n(&fex_poll_slots[local->slot].count[kind], ++local->value[kind], __ATOMIC_RELAXED);
+    if (fast) __atomic_store_n(&fex_poll_slots[local->slot].count[kind + 2],
+                              ++local->value[kind + 2], __ATOMIC_RELAXED);
     local->busy = 0;
     return 1;
+}
+
+static int fex_poll_count(unsigned id) { return fex_poll_count_kind(id, 0); }
+
+void wine_nx_fex_fast_api_totals(unsigned out[2])
+{
+    unsigned count = __atomic_load_n(&fex_poll_claimed, __ATOMIC_RELAXED);
+    if (count > FEX_POLL_SLOTS) count = FEX_POLL_SLOTS;
+    out[0] = out[1] = 0;
+    for (unsigned i = 0; i < count; ++i)
+        for (unsigned k = 0; k < 2; ++k)
+            out[k] += __atomic_load_n(&fex_poll_slots[i].count[k + 2], __ATOMIC_RELAXED);
 }
 
 void wine_nx_fex_poll_totals(unsigned out[2])

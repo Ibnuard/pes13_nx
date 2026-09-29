@@ -44,6 +44,8 @@ static void fex_short_push(struct fex_short_row row) {
 /* Consume trace prefixes even OFF/overflow: never fall back to synchronous SD. */
 static int fex_short_enqueue_text(const char *text) {
     if(strncmp(text,"[FEX3-JIT-THREAD] ",sizeof("[FEX3-JIT-THREAD] ")-1)&&
+       strncmp(text,"[FEX3-COMPILE] ",sizeof("[FEX3-COMPILE] ")-1)&&
+       strncmp(text,"[FEX3-BLOCK] ",sizeof("[FEX3-BLOCK] ")-1)&&
        strncmp(text,"[FEX3-JIT-SLOW] ",sizeof("[FEX3-JIT-SLOW] ")-1)&&
        strncmp(text,"[FEX3-JIT-CLOCK] ",sizeof("[FEX3-JIT-CLOCK] ")-1))return 0;
     if(!__atomic_load_n(&fex_short_enabled,__ATOMIC_ACQUIRE))return 1;

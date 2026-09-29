@@ -2,6 +2,7 @@
 #include "horizon_host.h"
 #include "horizon_counter.h"
 #include "horizon_jit_timing.h"
+#include "horizon_compile_trace.h"
 #include <atomic>
 #include <cstdlib>
 #include <windows.h>
@@ -99,6 +100,7 @@ void ShortReport(uint64_t now) {
 }
 
 extern "C" void PES13FexJitTimingInit(void) {
+    PES13FexCompileTraceInit();
     Frequency = pes13_fex_counter_frequency();
     Origin = pes13_fex_counter();
     LastReport.store(Origin, std::memory_order_relaxed);
@@ -136,6 +138,7 @@ extern "C" void PES13FexJitReport(void) {
     if (now < old || now - old < Frequency * 5 ||
         !LastReport.compare_exchange_strong(old, now, std::memory_order_relaxed)) return;
     ShortReport(now);
+    PES13FexCompileTraceReport(now);
     static const char *names[] = {"dispatch_compile", "compile_code", "invalidate"};
     for (unsigned stage = 0; stage < 3; ++stage) {
         const auto &s = Stats[stage];

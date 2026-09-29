@@ -7,11 +7,11 @@ import json
 def apply(work, project, integration=False, samecore_yield=False, runtime_fixes=False, diagnostic=False,
           resume_gate=False, stability=False, hang_audit=False, warm_audit=False, jit_latency=False, sleep_deadline=False,
           worker_cores=False, jit_log_queue=False, yield_burst=False, yield_adaptive=False, stable_balance=False, gap_audit=False, launcher=False,
-          memory_audit=False, memory_budget_filter=False, short_trace=False, dxvk_core3=False, lsfg=False, polling=False):
+          memory_audit=False, memory_budget_filter=False, short_trace=False, dxvk_core3=False, polling=False, fast_api=False):
+    if fast_api and not polling:
+        raise ValueError("Fast API requires polling baseline")
     if polling and not dxvk_core3:
         raise ValueError("Polling optimization requires the current runtime baseline")
-    if lsfg and not dxvk_core3:
-        raise ValueError("LSFG requires the current launcher/runtime baseline")
     if dxvk_core3 and not short_trace:
         raise ValueError("dxvk_core3 requires short_trace")
     if short_trace and not memory_budget_filter:
@@ -585,12 +585,12 @@ static int set_code_memory_perm( void *addr, void *source, size_t size, int prot
                     from fex_dxvk_core3_patches import apply as apply_dxvk_core3
                     apply_dxvk_core3(read, replace, project)
                     replace("wine-nx-probe/source/runtime.c", '"pes13-fextendo-dxvk-core3-v1"', '"pes13-fextendo-cpu-balance-v2"')
-                if lsfg:
-                    from fextendo_lsfg_patches import apply as apply_lsfg
-                    apply_lsfg(read, replace, project)
                 if polling:
                     from fex_polling_patches import apply as apply_polling
                     apply_polling(read, replace, project)
+                if fast_api:
+                    from fex_fast_api_patches import apply as apply_fast_api
+                    apply_fast_api(read, replace, project)
                 for key in list(patched):
                     patched[key] = patched[key].replace('switch/pes13-fex2', 'switch/pes13-fex')
 

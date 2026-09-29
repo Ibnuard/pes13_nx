@@ -8,7 +8,7 @@ int main(int argc,char **argv) {
     assert(argc==3);assert(fx_art_load(&art,argv[1]));
     uint32_t *buffer=calloc(1296*720,4);assert(buffer);
     struct fx_canvas c={buffer,1296,&art};
-    for(i=0;i<16;i++){
+    for(i=0;i<15;i++){
         v.screen=i<2?FX_HOME:i<4?FX_SETTINGS:i==4?FX_LOADING:FX_FAILED;
         v.tile=i==1;v.tile_mix=v.tile;v.sound=1;v.battery=82;v.wall_time=1800000000;v.last_played=v.wall_time-7200;v.row=i==3?3:0;v.selected=0;v.frame=32;v.saved=i==3;
         v.fatal=i==6;v.message=i==4?"Loading game files...":"Could not save the preset. Check the SD card.";
@@ -16,7 +16,7 @@ int main(int argc,char **argv) {
         if(i==8){v.screen=FX_SETTINGS;v.row=4;v.timestamp=1;}
         v.splash_ms=i==9?600:0;
         if(i>=10){v.screen=i==10?FX_HOME:FX_CREDITS;v.tile=2;v.tile_mix=2;v.credit_page=i==12;}
-        if(i>=13){v.screen=FX_SETTINGS;v.row=i-6;v.renderer=(i-13)%2;v.frame_generation=i==15;}
+        if(i>=13){v.screen=FX_SETTINGS;v.row=i-6;v.renderer=(i-13)%2;}
         v.settings_scroll=fx_settings_scroll_target(v.row);
         fx_render(&c,&v);
         snprintf(path,sizeof(path),"%s/screen-%d.ppm",argv[2],i);FILE *f=fopen(path,"wb");assert(f);

@@ -763,6 +763,9 @@ def apply(source, project, output):
     replace(name, '  *r = ptr;\n  return res;', '  if (!res) *r = ptr;\n  return res;')
     replace(name, '  rpmalloc_thread_initialize();', '  // No per-thread native heap setup.')
 
+    from fex_compile_trace_patches import apply as apply_compile_trace
+    apply_compile_trace(original, replace, project)
+
     # Validate the whole set before writing: preserve any unexpected local work.
     dirty = set(subprocess.check_output(['git', '-C', str(source), 'diff', '--name-only', 'HEAD'], text=True).splitlines())
     for prefix in SUBMODULE_PINS:
@@ -775,6 +778,7 @@ def apply(source, project, output):
     # patch manifest. This permits upgrades without resetting an entire tree.
     previous = {}
     for manifest in (Path(output), project / 'local/fex1/horizon-module/patches.json',
+                     project / 'local/fex3/polling-v1/module/patches.json',
                      project / 'local/fex3/macos-module/patches.json',
                      project / 'local/fex3/stability-540p/module/patches.json',
                      project / 'local/fex3/jit-latency/module/patches.json',

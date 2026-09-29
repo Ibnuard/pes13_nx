@@ -27,10 +27,8 @@ tidak produktif dalam jendela 2 ms, ambang 2 µs, pause 50 µs. Kandidat ini
 tidak menghilangkan transisi FEX/WOW64, kompilasi JIT/shader awal, atau
 pekerjaan GPU. Tidak ada perubahan pooling allocator pada paket ini.
 
-Balancing core, hash lookup FEX, JIT128, renderer, serta LSFG sama dengan
-v3.4. DLL FEX tidak berubah. Frame generation tetap OFF secara default;
-`Lossless.dll` 3.2.1.0 pengguna yang sudah diperiksa belum kompatibel dengan
-backend SPIR-V ini. Tidak ada DLL tersebut atau data game di dalam paket.
+Balancing core, hash lookup FEX, JIT128 dan renderer sama dengan v3.4.
+DLL FEX tidak berubah. Data game tidak disertakan dalam paket.
 
 ## Pemasangan
 
@@ -55,7 +53,7 @@ backend SPIR-V ini. Tidak ada DLL tersebut atau data game di dalam paket.
 
 ## Tes perangkat
 
-Gunakan **DXVK 3.1.1**, Frame generation **OFF**, dan Debug timestamp ON.
+Gunakan **DXVK 3.1.1**, dan Debug timestamp ON.
 Pertahankan preset, OC, tim, stadion serta camera tes sebelumnya. Tutup
 aplikasi penuh, buka lagi, lalu mainkan dua match tanpa menutup aplikasi
 di antaranya. Catat timestamp kickoff, shoot, bola lambung dan stutter;
@@ -100,7 +98,6 @@ secara identik. Tiga laporan FEX dipakai ulang karena modul dan sumber
 pengujiannya tidak berubah; pengujian runtime diulang pada ELF baru.
 
 Hasil tersedia di `evidence/checks/`. Ini belum merupakan tes hardware
-atau bukti freeze kickoff sudah hilang. Source modifikasi dan backend
-LSFG GPL, patch, resep build serta kredit tersedia dalam paket.
+atau bukti freeze kickoff sudah hilang. Source modifikasi, patch, resep build serta kredit tersedia dalam paket.
 FEX tetap FEX-Emu; port Switch/integrasi FEXTendo dikerjakan
 AndroSwitch Project / Ibnuard. Lihat `THIRD_PARTY.md` untuk atribusi lengkap.

@@ -25,8 +25,10 @@ static void *producer(void *p){
     }return NULL;
 }
 int main(void){
-    const char *prefixes[]={"[FEX3-JIT-THREAD] tid=4","[FEX3-JIT-SLOW] tid=4","[FEX3-JIT-CLOCK] origin_tick=1"};
-    for(unsigned i=0;i<3;i++)assert(fex_short_enqueue_text(prefixes[i]));
+    const char *prefixes[]={"[FEX3-JIT-THREAD] tid=4","[FEX3-JIT-SLOW] tid=4","[FEX3-JIT-CLOCK] origin_tick=1",
+                            "[FEX3-COMPILE] rip=0", "[FEX3-BLOCK] rip=4198400"};
+    const unsigned prefix_count=sizeof(prefixes)/sizeof(prefixes[0]);
+    for(unsigned i=0;i<prefix_count;i++)assert(fex_short_enqueue_text(prefixes[i]));
     assert(!fex_short_enqueue_text("[FEX3-JIT] old aggregate"));
     assert(fex_short_text.count==0 && wine_nx_fex_short_wait_begin(4)==0);
     fex_short_enabled=1;test_teb.ClientId.UniqueThread=(void*)4;
@@ -36,7 +38,7 @@ int main(void){
     assert(fex_short_enqueue_text(longline)&&fex_short_text.dropped==1);
     pthread_mutex_lock(&fex_short_text.mutex);assert(fex_short_enqueue_text(prefixes[0]));pthread_mutex_unlock(&fex_short_text.mutex);
     assert(fex_short_text.dropped==2);
-    for(unsigned i=0;i<FEX_SHORT_TEXT+1;i++)fex_short_enqueue_text(prefixes[i%3]);
+    for(unsigned i=0;i<FEX_SHORT_TEXT+1;i++)fex_short_enqueue_text(prefixes[i%prefix_count]);
     assert(fex_short_text.count==FEX_SHORT_TEXT && fex_short_text.dropped==3);
     while(fex_short_text.count)fex_short_drain();
     uint64_t start=wine_nx_fex_short_wait_begin(4);now+=19200*25;

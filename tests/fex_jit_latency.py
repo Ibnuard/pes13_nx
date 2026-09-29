@@ -102,6 +102,8 @@ void Set(int k, const char *v) { config[k]=v; }
 #define FEX_CONFIG_OPT(name, opt) auto name = [] { return requested; }
 '''
     harness += body('horizon_jit_timing.h').replace('#pragma once', '')
+    harness += body('horizon_compile_trace.h').replace('#pragma once','')
+    harness += body('module_compile_trace.cpp')
     harness += body('module_jit_timing.cpp') + body('module_profile.cpp')
     harness += _function(runtime, 'fex_warm_routine_line')
     harness += r'''
@@ -156,7 +158,8 @@ int main() {
     report={'passed':True,'hardware_tested':False,'output':output,
             'runtime_source_sha256':hashlib.sha256(runtime_path.read_bytes()).hexdigest(),
             'sources':{n:hashlib.sha256((ROOT/'src/fex'/n).read_bytes()).hexdigest() for n in
-                       ['module_profile.cpp','module_jit_timing.cpp','horizon_jit_timing.h']}}
+                       ['module_profile.cpp','module_jit_timing.cpp','horizon_jit_timing.h',
+                        'module_compile_trace.cpp','horizon_compile_trace.h']}}
     args.output.write_text(json.dumps(report,indent=2)+'\n')
     print(output,end='')
 

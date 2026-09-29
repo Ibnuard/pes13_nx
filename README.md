@@ -4,6 +4,14 @@ FEXTendo is a Nintendo Switch launcher and compatibility **wrapper for the
 Windows PC version of PES 2013**. It uses Wine, FEX-Emu and DXVK to run the PC
 game; this repository contains the wrapper, integration code and build tools.
 
+The **Switch port and Horizon/Wine integration of FEX-Emu in FEXTendo** are
+developed by **AndroSwitch Project / Ibnuard**. The CPU translation engine is
+upstream **FEX-Emu**; the Wine/Horizon runtime foundation comes from
+**Wine-NX / Autorun**. See the [FEX port source and commit record](docs/FEX-PORT-PROVENANCE.md)
+for our implementation work and the components we reuse or adapt. Our initial
+FEX guest PASS on Switch predates the later, explicitly credited Autorun timer
+backport and CPU-placement experiments.
+
 **Provide your own installed PES 2013 PC version 1.0.** The game executable,
 game data and installation code are not supplied by this repository.
 
@@ -59,7 +67,7 @@ private. Close the game before replacing runtime files.
   CPU translation engine used by our integration. Wine, DXVK, Mesa/mesa-switch,
   libnx and the other dependencies retain their original authorship.
 
-See [THIRD_PARTY.md](THIRD_PARTY.md) for what is reused directly, adapted or
-original, with source revisions and licenses. Project code uses
+See [THIRD_PARTY.md](THIRD_PARTY.md) for component origins, source revisions
+and licenses. Project code uses
 [LGPL-2.1-or-later](LICENSE); the new FEX adapter uses [MIT](src/fex/LICENSE).
 Unofficial project; not affiliated with Konami or Nintendo.

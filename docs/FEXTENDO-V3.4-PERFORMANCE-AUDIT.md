@@ -178,10 +178,6 @@ overhead, tanpa mematikan penanganan fault atau menyembunyikan kegagalan.
   GPU timestamp. Bandingkan 720p dan 540p hanya setelah kondisi CPU tetap,
   atau tambahkan timing GPU yang didukung driver. Pertahankan kecepatan
   simulasi dan pisahkan loading, replay, serta gameplay.
-- **Lossless/frame generation:** menambah kerja capture/interpolasi/GPU dan
-  memori. Ia membutuhkan frame asli sehingga tidak menghapus freeze kompilasi.
-  Tetap OFF untuk A/B CPU; ukur FPS game dan frame tampilan secara terpisah.
-  Dukungan backend dan kompatibilitas DLL pengguna harus diverifikasi sendiri.
 
 ## Pengujian yang membuat hasilnya dapat dipercaya
 
@@ -189,7 +185,7 @@ Mulai dari fresh launch dengan renderer **3.1.1**, JIT128, tim/stadion/camera,
 preset dan OC yang sama. Ulangi kickoff, umpan cepat, shooting, bola lambung,
 replay, lalu match kedua tanpa menutup aplikasi. Catat T+ dan simpan log sesudah
 match kedua. Ulang minimal dua fresh launch per kondisi dengan urutan A/B lalu
-B/A jika memungkinkan. Renderer, JIT cap, penempatan core, dan frame generation
+B/A jika memungkinkan. Renderer, JIT cap dan penempatan core
 tidak diubah sekaligus ketika membandingkan satu perubahan.
 
 Bandingkan gap gameplay >50 ms, peak serta total waktu frame melewati budget,

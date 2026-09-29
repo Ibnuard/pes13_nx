@@ -133,29 +133,3 @@ integration are FEXTendo work by **AndroSwitch Project / Ibnuard**. Wine-NX
 and Autorun remain the attributed runtime base/reference. DXVK 3.1.1 and
 Ph42oN GPLAsync DLLs are upstream binaries, not project-authored renderers.
 See `THIRD_PARTY.md` and the included license/source evidence.
-
-## Frame generation follow-up
-
-Autorun does have a native Horizon LSFG integration at commit
-`a52bb803819e856821cef9c19917675736df1529`, rather than simply loading a
-Windows DLL. Its native backend reads shader/model data from the user's
-`Lossless.dll`; its presentation code inserts generated images through the
-Vulkan swapchain. Reference:
-[Autorun lsfg.cpp](https://github.com/autorunhq/autorun/blob/a52bb803819e856821cef9c19917675736df1529/horizon-wine/source/lsfg.cpp),
-[backend build](https://github.com/autorunhq/autorun/blob/a52bb803819e856821cef9c19917675736df1529/horizon-wine/cmake/LsfgVk.cmake).
-
-This CPU/renderer candidate does not yet contain frame generation. The
-current toolchain lacks the matching Horizon LSFG static backend and headers.
-The supplied Steam DLL will need version compatibility checking after it is
-provided. Required integration work includes the native backend, swapchain
-usage/features, capture/interpolation/presentation synchronization, failure
-fallback and separate game/generated-frame counters. Start OFF by default;
-GPU time and memory use must be measured, particularly with reported 99%
-GPU usage. Frame generation needs real input frames and GPU work; it does not
-remove first-use CPU translation stalls. No proprietary DLL is bundled.
-
-The inspected Switch backend recipe pins the GPL LSFG archive to
-`8b0da2661c6f3473a7fccc8ba643880050e71642`. Its own documentation warns that
-first-use pipeline compilation can be slow. This needs its own warmup and
-frame-time comparison, not an assumption that enabling it fixes kickoff.
-[Horizon backend notes](https://github.com/autorunhq/switch-dev/blob/0fff003d388139829b303382b13c14c5344672b2/lsfg/README.md).

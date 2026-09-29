@@ -44,7 +44,7 @@ def main():
                 # The corruption test deliberately damaged one template.
                 shutil.copytree(ROOT/'config/fextendo/presets',root/'launcher/presets',dirs_exist_ok=True)
                 game=tmp/'pes2013.exe';game.write_bytes(b'MZ')
-                commands=[[str(exe),str(root),str(game if mode!=2 else tmp/'missing.exe'),str(mode)] for mode in range(12)]
+                commands=[[str(exe),str(root),str(game if mode!=2 else tmp/'missing.exe'),str(mode)] for mode in range(9)]
             for command in commands:
                 r=subprocess.run(command,check=True,capture_output=True,text=True,timeout=45)
                 records.append(r.stdout.strip());print(r.stdout.strip(),flush=True)
