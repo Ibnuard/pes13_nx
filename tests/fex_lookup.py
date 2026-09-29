@@ -16,6 +16,7 @@ from fex_memory import MemoryModel, MIB, PAGE, DTOR
 
 class LookupModel(MemoryModel):
     def __init__(self, dll, *, dynamic=False, l2_enabled=False):
+        self.fold_l1 = b'[FEX3-LOOKUP] v3' in dll.read_bytes()
         self.heap_base = 0x60000000
         self.heap_next = self.heap_base
         self.allocations = {}
@@ -127,7 +128,17 @@ class LookupModel(MemoryModel):
 
     def clear_l1_entry(self, guest):
         base, mask = self.readq(self.obj+0x30), self.readq(self.obj+0x38)
-        self.vm.mem_write(base+(guest & mask)*16, bytes(16))
+        self.vm.mem_write(base+self.l1_index(guest, mask)*16, bytes(16))
+
+    def l1_index(self, guest, mask=None):
+        if mask is None:
+            mask = self.readq(self.obj+0x38)
+        return (guest ^ (guest >> 16) if self.fold_l1 else guest) & mask
+
+    def colliding_guest(self, guest):
+        # Full tags differ but the selected L1 index is identical in both
+        # historical low-address and current folded-address implementations.
+        return guest ^ (0x10001 if self.fold_l1 else 0x10000)
 
     def invalidate(self, guest, erase=False):
         if erase:

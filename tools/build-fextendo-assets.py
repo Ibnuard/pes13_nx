@@ -1,6 +1,6 @@
 """Pack Fextendo stadium art, user controller sprites and OFL Inter glyphs."""
 from pathlib import Path
-import argparse, hashlib, json, struct, io
+import argparse, hashlib, json, struct, io, importlib.util
 import cairosvg
 from PIL import Image, ImageOps, ImageFont, ImageDraw, ImageFilter
 
@@ -16,6 +16,9 @@ def build(out):
     (out/'logo.rgba').write_bytes(logo.tobytes())
     icon=Image.open(ROOT/'assets/icon.png').convert('RGBA').resize((256,256),Image.Resampling.LANCZOS)
     (out/'icon.rgba').write_bytes(icon.tobytes())
+    for name in ('settings','credits'):
+        im=Image.open(ROOT/f'assets/fextendo-v3.2/{name}-flat.png').convert('RGBA')
+        (out/(name+'-icon.rgba')).write_bytes(ImageOps.fit(im,(256,256),method=Image.Resampling.LANCZOS).tobytes())
     for name,filename,size in (('gamepad','gamepad-flat.png',(128,96)),('wordmark','wordmark.png',(600,128))):
         im=Image.open(ROOT/'assets/fextendo-v2'/filename).convert('RGBA')
         im=im.crop(im.getbbox())
@@ -49,10 +52,12 @@ def build(out):
         tile=Image.new('L',(56,112));ImageDraw.Draw(tile).text((28,76),ch,font=tf,fill=255,anchor='ms')
         glyphs.extend(tile.resize((14,28),Image.Resampling.LANCZOS).tobytes())
     (out/'timestamp-font.bin').write_bytes(bytes(glyphs))
-    inputs=['assets/fextendo-v2/stadium.png','assets/fextendo-v2/gamepad-flat.png','assets/fextendo-v2/wordmark.png',
+    spec=importlib.util.spec_from_file_location('fextendo_audio',ROOT/'tools/build-fextendo-audio.py')
+    audio=importlib.util.module_from_spec(spec);spec.loader.exec_module(audio);audio.build(out)
+    inputs=['assets/fextendo-v3.2/settings-flat.png','assets/fextendo-v3.2/credits-flat.png','tools/build-fextendo-audio.py','assets/fextendo-v2/stadium.png','assets/fextendo-v2/gamepad-flat.png','assets/fextendo-v2/wordmark.png',
             'assets/logo.png','assets/icon.png','assets/fonts/Inter/Inter.ttf','assets/fonts/Inter/OFL.txt']
     inputs += [f'assets/Solid Duo/Dark theme/{n}.svg' for n in buttons]
-    manifest={'format':3,'font':'Inter','font_source':'https://github.com/google/fonts/tree/main/ofl/inter','buttons':buttons,
+    manifest={'format':4,'font':'Inter','font_source':'https://github.com/google/fonts/tree/main/ofl/inter','buttons':buttons,
               'inputs':{n:hashlib.sha256((ROOT/n).read_bytes()).hexdigest() for n in inputs},
               'files':{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in out.iterdir() if p.suffix in ('.rgba','.bin','.jpg')}}
     (out/'assets.json').write_text(json.dumps(manifest,indent=2)+'\n')

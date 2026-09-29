@@ -18,9 +18,13 @@ extern "C" void *PES13FexHeapCalloc(size_t count, size_t size) {
 extern "C" void *PES13FexHeapRealloc(void *address, size_t size) {
     if (!address) return PES13FexHeapAlloc(size, 16);
     if (!size) { PES13FexHeapFree(address); return nullptr; }
+    const size_t previous = PES13FexHeapUsableSize(address);
+    // The allocation already owns this capacity. Retain it for equal sizes
+    // and modest shrinks; avoid two PE/native callbacks and a redundant copy.
+    // Large shrinks still return memory, bounding retained scratch overhead.
+    if (size <= previous && previous - size <= size / 2) return address;
     void *result = PES13FexHeapAlloc(size, 16);
     if (!result) return nullptr; // Preserve the original allocation on failure.
-    size_t previous = PES13FexHeapUsableSize(address);
     std::memcpy(result, address, previous < size ? previous : size);
     PES13FexHeapFree(address);
     return result;

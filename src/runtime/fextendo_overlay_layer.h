@@ -22,13 +22,15 @@ static void fx_overlay_layer_close(ViLayer *layer) {
 }
 static Result fx_overlay_layer_create(const ViDisplay *display,ViLayer *layer) {
     union { uint64_t alignment; unsigned char raw[0x100]; } parcel={0};
-    uint64_t size=0;Result rc;
+    uint64_t size=0,aruid=appletGetAppletResourceUserId();Result rc;
     memset(layer,0,sizeof(*layer));
     if(!serviceIsActive(viGetSession_IManagerDisplayService()))
         return MAKERESULT(Module_Libnx,LibnxError_NotInitialized);
-    rc=viCreateManagedLayer(display,(ViLayerFlags)0,0,&layer->layer_id);
+    rc=viCreateManagedLayer(display,(ViLayerFlags)0,aruid,&layer->layer_id);
     if(R_FAILED(rc))return rc;
-    const struct { ViDisplayName name; uint64_t id,aruid; } in={display->display_name,layer->layer_id,0};
+    /* Foreground applications have a nonzero resource-user ID. Zero belongs
+     * to AppletType_None overlays such as Tesla, not this game application. */
+    const struct { ViDisplayName name; uint64_t id,aruid; } in={display->display_name,layer->layer_id,aruid};
     rc=serviceDispatchInOut(viGetSession_IApplicationDisplayService(),2020,in,size,
         .in_send_pid=true,
         .buffer_attrs={SfBufferAttr_Out|SfBufferAttr_HipcMapAlias},

@@ -10,6 +10,7 @@ import tempfile
 from unicorn import arm64_const as arm
 from fex_samecore_binary import Model as DelayModel, reg
 from fex_resume_gate import function as extract_static
+from fextendo_source_normalization import undo_polling
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -21,6 +22,7 @@ def function(text, name):
 
 def native(source):
     sync = (source/'dlls/ntdll/unix/sync.c').read_text()
+    sync, _ = undo_polling(sync, ROOT, 'dlls/ntdll/unix/sync.c')
     pre = r'''
 #define __SWITCH__ 1
 #define WINAPI
@@ -173,10 +175,13 @@ def main():
     # Only the yield function changed; all delay branches, APC and clocks stay identical.
     baseline=Path('local/fex3/yield-burst/before/sync.c').read_text()
     generated=(args.source/'dlls/ntdll/unix/sync.c').read_text()
+    generated, _ = undo_polling(generated, ROOT, 'dlls/ntdll/unix/sync.c')
     assert function(baseline,'fex_delay_impl')==function(generated,'fex_delay_impl')
     assert function(baseline,'NtDelayExecution')==function(generated,'NtDelayExecution')
     files=['tests/fex_yield_burst.py','src/runtime/fex_yield_burst.h',
-           'src/runtime/fex_yield_runtime.h','tools/fex_yield_burst_patches.py']
+           'src/runtime/fex_yield_runtime.h','tools/fex_yield_burst_patches.py',
+           'tests/fextendo_source_normalization.py','tools/fex_polling_patches.py',
+           'src/runtime/fex_polling_yield.h','src/runtime/fex_polling_counters.h']
     report={'passed':True,'hardware_tested':False,
             'native_elf_sha256':hashlib.sha256(args.elf.read_bytes()).hexdigest(),
             'before_native_elf_sha256':hashlib.sha256(args.before.read_bytes()).hexdigest(),

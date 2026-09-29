@@ -5,15 +5,22 @@ Its FEX backend uses the upstream FEX-Emu engine. The older Box64 backend remain
 in the repository's history and build tools. Original copyright headers and
 component licenses are preserved; the project name does not replace them.
 
+The [FEX port provenance record](docs/FEX-PORT-PROVENANCE.md) maps AndroSwitch
+Project / Ibnuard's Switch integration work to source files, commit history
+and recorded validation. A `fex_` filename identifies its integration target;
+it does not by itself establish original authorship.
+
 ## Provenance: reused, adapted and original
 
 | Part | How this project uses it |
 | --- | --- |
 | Autorun / Wine-NX and Wine | The runtime is built from the pinned Wine-NX source, with project patches. The native Horizon runtime, Wine loader, Windows API implementation and underlying platform support are inherited code, not a runtime written from scratch here. [Autorun](https://github.com/autorunhq/autorun) is the project's current name. The base is Wine-NX commit `1bc4e45163f0d2328cdfd35c7f471dd9821bb879`, recorded in [dependencies.json](dependencies.json). |
-| Direct Autorun backport | The waitable-timer changes in [tools/fex_runtime_fixes.py](tools/fex_runtime_fixes.py) contain before/after code from Autorun commit [51f94949](https://github.com/autorunhq/autorun/commit/51f94949d738c978bfb80a5118d7ffa4cf6b98ae), then add project changes for cancellation semantics, bounded catch-up, overflow and rearm handling. This is adapted upstream code, not wholly original code. |
+| Direct Autorun backport | The waitable-timer changes in [tools/fex_runtime_fixes.py](tools/fex_runtime_fixes.py) contain before/after code from Autorun commit [51f94949](https://github.com/autorunhq/autorun/commit/51f94949d738c978bfb80a5118d7ffa4cf6b98ae), then add project changes for cancellation semantics, bounded catch-up, overflow and rearm handling. This later backport entered this repository in [c4ec5cb](https://github.com/Ibnuard/pes13_nx/commit/c4ec5cb2d0262841c36c6cbb5472c8a2f3ea26e3), after the initial FEX guest PASS; it was not part of the initial port. This is adapted upstream code, not wholly original code. |
+| Autorun graphics-worker offload (opt-in trial) | [src/runtime/fex_dxvk_core3.h](src/runtime/fex_dxvk_core3.h) and its name/affinity wiring adapt Autorun commit [c2268252](https://github.com/autorunhq/autorun/tree/c2268252a28abb5977fec8ea385b43f0e9519a5f) (`horizon-wine/source/thread_profile.c/h`, `dlls/ntdll/unix/thread.c`). The project narrows eligibility to `dxvk-cs`, retains its stable balancer, and adds readback logs, separate role metadata and failure recovery. This is adapted upstream design/code under LGPL-2.1-or-later, not wholly original work. |
 | Autorun references | Thread placement, synchronization and configuration were studied against pinned Autorun source. The [thread/CPU audit](docs/AUTORUN-THREAD-CPU-AUDIT-2026-09-28.md) distinguishes implemented behavior from unimplemented proposals. Referencing those designs does not mean their entire implementation was copied. |
-| Upstream FEX-Emu | The CPU translator, JIT and upstream WOW64 implementation come from FEX-Emu and are built with Horizon-specific patches. FEX-Emu itself was not created by this project. |
-| Original FEX-Emu port to Nintendo Switch | FEXTendo / AndroSwitch Project developed this port and its Horizon/Wine integration: the host adapter under [src/fex/](src/fex/), Horizon JIT-memory interface, PE/native callback ABI, Wine exception bridge, project profiles and original guest tests, plus integration/build patchers. This port integrates and modifies upstream FEX/Wine; its host adapter was independently developed, not copied from Autorun. Porting work is credited to this project; the FEX-Emu engine remains the work of its upstream authors. Project code is MIT where marked; patched upstream files retain their own notices. |
+| Upstream FEX-Emu | The CPU translator, JIT and upstream WOW64 implementation come from FEX-Emu and are built with Horizon-specific patches. FEX-Emu itself was not created by this project. Its [pinned WOW64 module](https://github.com/FEX-Emu/FEX/blob/e2f973fe931e6dc2ce523795e51ca1ac3ca85816/Source/Windows/WOW64/Module.cpp) also acknowledges André Zwing's Hangover work; that acknowledgement remains with the upstream source. |
+| FEXTendo's FEX-Emu port to Nintendo Switch | AndroSwitch Project / Ibnuard developed the Switch host adapter, Horizon JIT-memory interface, PE-to-native callback wrapper, Wine exception integration, project profiles and guest test programs, with integration/build patchers. The initial adapter and guest validation are recorded in [commit 88b6a2f](https://github.com/Ibnuard/pes13_nx/commit/88b6a2f267ae01bc8d4f8f35fb31df865800f67a). The build uses pinned upstream FEX source and applies this repository's adapter and patches. This work extends FEX and the inherited Wine-NX runtime, including its existing native-to-PE callback machinery. The [source map](docs/FEX-PORT-PROVENANCE.md) identifies those boundaries. Project adapter code is MIT where marked; patched upstream files retain their notices. |
+| FEX diagnostic sampler adaptation | The optional FEX-aware context sampler adapts the inherited Wine-NX profiling machinery to FEX register/frame metadata. The profiler foundation remains Wine-NX code; the FEX-specific mapping is an integration change, under LGPL-2.1-or-later. |
 | Original FEXTendo launcher | [src/runtime/fextendo_*.h](src/runtime/) implements the native menu, renderer, focus/scroll animation, preset handling, generated audio cues, Last played history and timestamp overlay. It does not enter or copy Wine-NX's SDL launcher. The overlay uses libnx's VI protocol; [libnx VI](https://github.com/switchbrew/libnx/blob/master/nx/source/services/vi.c) and [libtesla's layer-stack setup](https://github.com/WerWolv/libtesla/blob/master/include/tesla.hpp) were engineering references. |
 | Direct runtime dependencies | The package retains matched Wine modules, fonts/NLS data and DXVK DLLs from the pinned Wine-NX release payload where recorded by packaging manifests. Mesa, libnx and portlibs are linked dependencies. Building or packaging these does not make them original project code. |
 
@@ -29,7 +36,9 @@ and [src/fex/LICENSE](src/fex/LICENSE). Dependency revisions are recorded in
 | Wine / Wine-NX / Autorun | Wine authors; danfromtico and Autorun contributors | LGPL-2.1-or-later; [pinned source](https://github.com/danfromtico/wine-nx/tree/1bc4e45163f0d2328cdfd35c7f471dd9821bb879) |
 | Box64 | ptitSeb and contributors | MIT; [pinned source](https://github.com/ptitSeb/box64/tree/dae0917c47b4edd8956f314210417a20fd225c4b) |
 | FEX-Emu | Ryan Houdek and FEX contributors | MIT; [pinned source](https://github.com/FEX-Emu/FEX/tree/e2f973fe931e6dc2ce523795e51ca1ac3ca85816); upstream dependencies retain their individual licenses |
-| DXVK | Philip Rebohle, Joshua Ashton, Robin Kertels, Jeffrey Ellison and contributors | zlib/libpng; [source](https://github.com/doitsujin/dxvk) at `878473ba`, version reported by the retained release DLL |
+| DXVK | Philip Rebohle, Joshua Ashton, Robin Kertels, Jeffrey Ellison and contributors | zlib/libpng; legacy Wine-NX payload at `878473ba`; FEX3 trial baseline uses the official [v3.1.1 release](https://github.com/doitsujin/dxvk/releases/tag/v3.1.1). Exact DLL hashes are recorded in package manifests. |
+| DXVK-Sarek (opt-in renderer trial) | DXVK authors; pythonlover02 and Sarek contributors | zlib/libpng; unmodified PE32 D3D9 from [v1.13.0](https://github.com/pythonlover02/dxvk-sarek/releases/tag/v1.13.0), commit `37f397e142b977a343e920dbc4c7bf7ed2c63a81`. The project supplies configuration and packaging, not the Sarek renderer or dyasync implementation. |
+| DXVK-GPLAsync (opt-in renderer trial) | DXVK authors; Ph42oN; Sporif and prior async-patch contributors | DXVK zlib/libpng notices retained; unmodified PE32 D3D9 from [v2.7.1-1](https://gitlab.com/Ph42oN/dxvk-gplasync/-/releases/v2.7.1-1). Release recipe/patch commit `209a3069a19d13efb019e111f27114c185e86092` applies to upstream DXVK `c3dd74be6baec53786d4e064a572185b70347a17`. This project supplies configuration, validation and packaging, not DXVK or its async implementation. |
 | Mesa / mesa-switch | Mesa authors; danfromtico, NaGaa95 and contributors | Mostly MIT, individual source licenses apply; [pinned source](https://github.com/danfromtico/mesa-switch/tree/b297e230ef88c6c88df2561becf864f979f494a6) |
 | libnx | switchbrew and contributors | ISC; [source](https://github.com/switchbrew/libnx) |
 | SDL2 / SDL2_ttf | Sam Lantinga and contributors | zlib; [source](https://github.com/libsdl-org) |
@@ -76,3 +85,11 @@ The user-supplied Solid Duo controller sprites retain their original rights;
 they are not covered by the source-code or font licenses. V2's generated
 stadium, flat gamepad and FEXTendo wordmark have provenance and prompts in
 `assets/fextendo-v2/GENERATION.md`.
+
+FEXTendo v3.2 adds independently synthesized mallet-style cues and an original
+16-second ambient loop, with no third-party audio samples or tracks. Its flat
+Settings/Credits images were generated for this project; the exact prompts and
+method are in [assets/fextendo-v3.2/GENERATION.md](assets/fextendo-v3.2/GENERATION.md).
+The new default-display capture uses libnx as a linked dependency and the
+[libnx default-window lifecycle](https://github.com/switchbrew/libnx/blob/master/nx/source/display/default_window.c)
+as a reference. It borrows the application display and preserves libnx ownership.

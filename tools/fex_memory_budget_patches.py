@@ -9,7 +9,7 @@ def apply(read, replace, project):
     replace(name,anchor,
             '    wine_nx_fex_memory_budget_enabled = wine_nx_config_file_bool(RUNTIME_DIR "/fex_memory_budget", 0);\n'
             '    log_line("[FEX3-MEMBUDGET] client_extension=%d; 0 uses standard DXVK no-budget fallback, 1 restores driver queries", wine_nx_fex_memory_budget_enabled);\n'+anchor)
-    replace(name,'"pes13-fextendo-mem-audit"','"pes13-fextendo-v3.1-focus"')
+    replace(name,'"pes13-fextendo-mem-audit"','"pes13-fextendo-v3.2-glass"')
     name='dlls/win32u/vulkan.c'
     anchor='static VkResult init_physical_device( struct vulkan_physical_device *physical_device, VkPhysicalDevice host_physical_device,'
     replace(name,anchor,(project/'src/runtime/fex_memory_budget.h').read_text()+'\n'+anchor)

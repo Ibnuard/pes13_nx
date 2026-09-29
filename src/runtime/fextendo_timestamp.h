@@ -18,10 +18,13 @@ static uint64_t fx_timestamp_elapsed(uint64_t tick) {
 }
 static void *fx_timestamp_main(void *unused) {
     ViDisplay display={0};ViLayer layer={0};NWindow window={0};Framebuffer fb={0};
-    int have_window=0,have_fb=0;Result rc=0;s32 z=0,width=1920,height=1080;
-    const char *stage="display";
+    int have_window=0,have_fb=0,borrowed_display=0;Result rc=0;s32 z=0,width=1920,height=1080;
+    const char *stage="display";unsigned submitted=0;
     (void)unused;
-    if(R_FAILED(rc=viOpenDefaultDisplay(&display)))goto done;
+    log_line("[FEXTENDO-TIME] setup aruid=%llu manager=%d; independent application overlay",
+             (unsigned long long)appletGetAppletResourceUserId(),serviceIsActive(viGetSession_IManagerDisplayService()));
+    if(R_FAILED(rc=fx_overlay_display_open(&display,&borrowed_display)))goto done;
+    log_line("[FEXTENDO-TIME] display id=%llu borrowed=%d",(unsigned long long)display.display_id,borrowed_display);
     stage="independent managed layer";
     if(R_FAILED(rc=fx_overlay_layer_create(&display,&layer)))goto done;
     stage="display stacks";
@@ -55,9 +58,11 @@ static void *fx_timestamp_main(void *unused) {
         if(appletGetFocusState()!=AppletFocusState_InFocus){svcSleepThread(100000000);continue;}
         u32 stride;uint64_t tick=armGetSystemTick();
         uint32_t *pixels=framebufferBegin(&fb,&stride);
-        if(!pixels)break;
+        if(!pixels){log_line("[FEXTENDO-TIME] overlay stopped: framebuffer unavailable after %u submissions",submitted);break;}
         fx_timestamp_pixels(pixels,stride/4,fx_timestamp_elapsed(tick));
         framebufferEnd(&fb);
+        if(!submitted++)log_line("[FEXTENDO-TIME] first overlay frame submitted; position=%d,%d logical=%dx%d z=%d",
+            (1280-FX_TIME_W-24)*width/1280,92*height/720,width,height,z);
         uint64_t elapsed=armTicksToNs(armGetSystemTick()-tick);
         if(elapsed<100000000)svcSleepThread(100000000-elapsed);
     }
@@ -65,7 +70,7 @@ done:
     if(have_fb)framebufferClose(&fb);
     if(have_window)nwindowClose(&window);
     if(layer.layer_id)fx_overlay_layer_close(&layer);
-    if(display.initialized)viCloseDisplay(&display);
+    if(display.initialized&&!borrowed_display)viCloseDisplay(&display);
     if(R_FAILED(rc))log_line("[FEXTENDO-TIME] overlay unavailable stage=%s rc=0x%x; game continues",stage,(unsigned)rc);
     return NULL;
 }

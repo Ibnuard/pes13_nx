@@ -4,7 +4,7 @@
 #define FEXTENDO_LAUNCHER_H
 #include <pthread.h>
 #ifndef FX_SPLASH_MS
-#define FX_SPLASH_MS 800
+#define FX_SPLASH_MS 2400
 #endif
 #define FX_UI_FRAME_NS 16666667ull
 
@@ -85,14 +85,16 @@ static void *fx_ui_main(void *arg) {
     if(R_FAILED(rc)){framebufferClose(&fb);goto failed_fb;}
     padConfigureInput(1,HidNpadStyleSet_NpadStandard);padInitializeDefault(&pad);
     __atomic_store_n(&fx_ui_owned,1,__ATOMIC_RELEASE);
-    if(!fx_recover(RUNTIME_DIR)){
+    if(!fx_renderer_recover(RUNTIME_DIR)||!fx_recover(RUNTIME_DIR)){
         fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=1;
-        fx_ui_view.message="Preset recovery failed. Check SD card space.";
+        fx_ui_view.message="Settings recovery failed. Check SD card space.";
     }
     fx_ui_view.selected=fx_selected(RUNTIME_DIR);
+    fx_ui_view.renderer=fx_renderer_selected(RUNTIME_DIR);
     fx_ui_view.timestamp=fx_debug_timestamp(RUNTIME_DIR);
     fx_ui_view.last_played=fx_last_played(RUNTIME_DIR);
-    fx_ui_view.sound=fx_menu_sound(RUNTIME_DIR);fx_sfx_init();
+    fx_ui_view.sound=fx_menu_sound(RUNTIME_DIR);
+    fx_ui_view.music=fx_background_music(RUNTIME_DIR);fx_music_set(fx_ui_view.music);fx_sfx_init(RUNTIME_DIR);
     psm_ready=R_SUCCEEDED(psmInitialize());
     ui_origin=armGetSystemTick();
     while(!__atomic_load_n(&fx_ui_stop,__ATOMIC_ACQUIRE)){
@@ -124,35 +126,41 @@ static void *fx_ui_main(void *arg) {
         }
         confirm=(down&HidNpadButton_A)!=0;
         pthread_mutex_lock(&fx_ui_lock);
-        int old_tile=fx_ui_view.tile,old_row=fx_ui_view.row;
-        if(fx_ui_view.screen==FX_HOME||fx_ui_view.screen==FX_SETTINGS){
+        int old_tile=fx_ui_view.tile,old_row=fx_ui_view.row,old_page=fx_ui_view.credit_page;
+        if(fx_ui_view.screen==FX_HOME||fx_ui_view.screen==FX_SETTINGS||fx_ui_view.screen==FX_CREDITS){
             if(down&HidNpadButton_Plus){
                 __atomic_store_n(&fx_ui_command,-1,__ATOMIC_RELEASE);
                 pthread_mutex_unlock(&fx_ui_lock);break;
             }
         }
         if(fx_ui_view.screen==FX_HOME){
-            if(dir)fx_ui_view.tile=1-fx_ui_view.tile;
+            if(dir)fx_ui_view.tile=(fx_ui_view.tile+dir+3)%3;
             if(down&HidNpadButton_B)fx_ui_view.tile=0;
-            if(confirm&&fx_ui_view.tile){fx_ui_view.screen=FX_SETTINGS;fx_ui_view.row=fx_ui_view.selected;fx_ui_view.settings_scroll=fx_settings_scroll_target(fx_ui_view.row);fx_ui_view.saved=0;}
+            if(confirm&&fx_ui_view.tile==2){fx_ui_view.screen=FX_CREDITS;fx_ui_view.credit_page=0;}
+            else if(confirm&&fx_ui_view.tile==1){fx_ui_view.screen=FX_SETTINGS;fx_ui_view.row=fx_ui_view.selected;fx_ui_view.settings_scroll=fx_settings_scroll_target(fx_ui_view.row);fx_ui_view.saved=0;}
             else if(confirm){
                 FILE *game=fopen(DEFAULT_TARGET,"rb");
                 if(!game){fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;fx_ui_view.message="PES13 was not found. Check the game folder.";}
                 else{
                     fclose(game);
-                    if(!fx_apply_preset(RUNTIME_DIR,fx_ui_view.selected)){
-                        fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;fx_ui_view.message="Could not save the preset. Check the SD card.";
-                    }else{
-                        fx_timestamp_arm(fx_ui_view.timestamp,frame_start);
-                        fx_ui_view.screen=FX_LOADING;fx_ui_view.message="Preparing your game...";pending=1;started=frame_start;
-                    }
+                    fx_timestamp_arm(fx_ui_view.timestamp,frame_start);
+                    fx_ui_view.screen=FX_LOADING;fx_ui_view.message="Preparing your game...";pending=1;started=frame_start;
                 }
             }
         }else if(fx_ui_view.screen==FX_SETTINGS){
-            if(dir){fx_ui_view.row=(fx_ui_view.row+dir+6)%6;fx_ui_view.saved=0;}
+            if(dir){fx_ui_view.row=(fx_ui_view.row+dir+FX_SETTINGS_ROWS)%FX_SETTINGS_ROWS;fx_ui_view.saved=0;}
             if(down&HidNpadButton_B)fx_ui_view.screen=FX_HOME;
             else if(confirm){
-                if(fx_ui_view.row==5){
+                if(fx_ui_view.row>=7){
+                    int selected=fx_ui_view.row-7;
+                    if(fx_renderer_save(RUNTIME_DIR,selected)){fx_ui_view.renderer=selected;fx_ui_view.saved=1;}
+                    else{fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;fx_ui_view.message="Could not save the renderer. Check the SD card.";}
+                }
+                else if(fx_ui_view.row==6){
+                    if(fx_background_music_save(RUNTIME_DIR,!fx_ui_view.music)){fx_ui_view.music=!fx_ui_view.music;fx_music_set(fx_ui_view.music);fx_ui_view.saved=1;}
+                    else{fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;fx_ui_view.message="Could not save the music setting. Check the SD card.";}
+                }
+                else if(fx_ui_view.row==5){
                     if(fx_menu_sound_save(RUNTIME_DIR,!fx_ui_view.sound)){fx_ui_view.sound=!fx_ui_view.sound;fx_ui_view.saved=1;}
                     else{fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;fx_ui_view.message="Could not save the sound setting. Check the SD card.";}
                 }
@@ -163,6 +171,9 @@ static void *fx_ui_main(void *arg) {
                 else if(fx_apply_preset(RUNTIME_DIR,fx_ui_view.row)){fx_ui_view.selected=fx_ui_view.row;fx_ui_view.saved=1;}
                 else{fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;fx_ui_view.message="Could not save the preset. Check the SD card.";}
             }
+        }else if(fx_ui_view.screen==FX_CREDITS){
+            if(down&HidNpadButton_B)fx_ui_view.screen=FX_HOME;
+            else if(dir||(down&(HidNpadButton_L|HidNpadButton_R)))fx_ui_view.credit_page=1-fx_ui_view.credit_page;
         }else if(fx_ui_view.screen==FX_FAILED&&(confirm||(!fx_ui_view.fatal&&(down&HidNpadButton_B)))){
             if(fx_ui_view.fatal){
                 __atomic_store_n(&fx_boot_started,0,__ATOMIC_RELEASE);
@@ -174,7 +185,7 @@ static void *fx_ui_main(void *arg) {
         }
         if(confirm)fx_sfx_play(fx_ui_view.screen==FX_FAILED?FX_ERROR:FX_CONFIRM,fx_ui_view.sound);
         else if(down&HidNpadButton_B)fx_sfx_play(FX_BACK,fx_ui_view.sound);
-        else if(fx_ui_view.tile!=old_tile||fx_ui_view.row!=old_row)fx_sfx_play(FX_NAV,fx_ui_view.sound);
+        else if(fx_ui_view.tile!=old_tile||fx_ui_view.row!=old_row||fx_ui_view.credit_page!=old_page)fx_sfx_play(FX_NAV,fx_ui_view.sound);
         if(fx_ui_view.screen==FX_LOADING&&pending&&!(held&HidNpadButton_A)&&armTicksToNs(frame_start-started)>=120000000){
             fx_sfx_close(); /* never overlap the game's audout session */
             pending=0;__atomic_store_n(&fx_boot_started,1,__ATOMIC_RELEASE);
@@ -216,8 +227,25 @@ static int fx_launcher_start(void) {
         fx_native_error("Unable to start the launcher.");return 0;
     }
     fx_ui_created=1;
-    while(!(command=__atomic_load_n(&fx_ui_command,__ATOMIC_ACQUIRE)))svcSleepThread(10000000);
-    if(command<0){pthread_join(fx_ui_thread,NULL);fx_ui_created=0;return 0;}
+    for(;;){
+        while(!(command=__atomic_load_n(&fx_ui_command,__ATOMIC_ACQUIRE)))svcSleepThread(10000000);
+        if(command<0){pthread_join(fx_ui_thread,NULL);fx_ui_created=0;return 0;}
+        /* Main thread performs SD I/O while the UI keeps the loading spinner moving.
+         * No guest can load either D3D9 copy until the complete transaction succeeds. */
+        int renderer=fx_ui_view.renderer,selected=fx_ui_view.selected;
+        int ready=fx_apply_renderer(RUNTIME_DIR,renderer)&&fx_apply_preset(RUNTIME_DIR,selected);
+        if(__atomic_load_n(&fx_ui_command,__ATOMIC_ACQUIRE)<0){
+            __atomic_store_n(&fx_boot_started,0,__ATOMIC_RELEASE);
+            pthread_join(fx_ui_thread,NULL);fx_ui_created=0;return 0;
+        }
+        if(ready){log_line("[FEXTENDO-RENDERER] selected=%s verified=1",fx_renderer_ids[renderer]);break;}
+        pthread_mutex_lock(&fx_ui_lock);
+        fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;
+        fx_ui_view.message="Could not prepare the renderer. Copy both renderer folders and check SD space.";
+        __atomic_store_n(&fx_boot_started,0,__ATOMIC_RELEASE);
+        __atomic_store_n(&fx_ui_command,0,__ATOMIC_RELEASE);
+        pthread_mutex_unlock(&fx_ui_lock);
+    }
     atexit(fx_exit_check);
     log_line("[FEXTENDO] launch requested; canonical settings=C:\\KONAMI\\Pro Evolution Soccer 2013\\settings.dat; VSync=on");
     return 1;

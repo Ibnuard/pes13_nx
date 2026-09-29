@@ -7,7 +7,15 @@ import json
 def apply(work, project, integration=False, samecore_yield=False, runtime_fixes=False, diagnostic=False,
           resume_gate=False, stability=False, hang_audit=False, warm_audit=False, jit_latency=False, sleep_deadline=False,
           worker_cores=False, jit_log_queue=False, yield_burst=False, yield_adaptive=False, stable_balance=False, gap_audit=False, launcher=False,
-          memory_audit=False, memory_budget_filter=False):
+          memory_audit=False, memory_budget_filter=False, short_trace=False, dxvk_core3=False, polling=False, fast_api=False):
+    if fast_api and not polling:
+        raise ValueError("Fast API requires polling baseline")
+    if polling and not dxvk_core3:
+        raise ValueError("Polling optimization requires the current runtime baseline")
+    if dxvk_core3 and not short_trace:
+        raise ValueError("dxvk_core3 requires short_trace")
+    if short_trace and not memory_budget_filter:
+        raise ValueError("short_trace requires memory_budget_filter")
     if memory_budget_filter and not memory_audit:
         raise ValueError('Memory budget filter requires memory audit baseline')
     if memory_audit and not launcher:
@@ -570,6 +578,19 @@ static int set_code_memory_perm( void *addr, void *source, size_t size, int prot
                 if memory_budget_filter:
                     from fex_memory_budget_patches import apply as apply_memory_budget_filter
                     apply_memory_budget_filter(read, replace, project)
+                if short_trace:
+                    from fex_short_trace_patches import apply as apply_short_trace
+                    apply_short_trace(read, replace, project)
+                if dxvk_core3:
+                    from fex_dxvk_core3_patches import apply as apply_dxvk_core3
+                    apply_dxvk_core3(read, replace, project)
+                    replace("wine-nx-probe/source/runtime.c", '"pes13-fextendo-dxvk-core3-v1"', '"pes13-fextendo-cpu-balance-v2"')
+                if polling:
+                    from fex_polling_patches import apply as apply_polling
+                    apply_polling(read, replace, project)
+                if fast_api:
+                    from fex_fast_api_patches import apply as apply_fast_api
+                    apply_fast_api(read, replace, project)
                 for key in list(patched):
                     patched[key] = patched[key].replace('switch/pes13-fex2', 'switch/pes13-fex')
 

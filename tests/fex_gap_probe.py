@@ -109,7 +109,7 @@ class Model(BaseModel):
 
 def environments(source,elf):
     text=(source/'wine-nx-probe/source/runtime.c').read_text()
-    for name in ('runtime_environment','fex_jit_large_environment'):
+    for name in ('runtime_environment','fex_jit_large_environment','fex_jit_small_environment'):
         for disk in (False,True):
             symbol=name+('_disk' if disk else '')
             # Semicolons can occur inside PATH; use the ending quote+semicolon.
@@ -120,7 +120,7 @@ def environments(source,elf):
             entries=data.rstrip(b'\0').split(b'\0');keys=[e.split(b'=')[0].lower() for e in entries]
             assert keys==sorted(keys) and len(keys)==len(set(keys))
             options=dict(e.split(b'=',1) for e in entries)
-            assert options[b'FEX_MAXINST']==(b'5000' if 'large' in name else b'500')
+            assert options[b'FEX_MAXINST']==(b'5000' if 'large' in name else b'128' if 'small' in name else b'500')
             assert options[b'FEX_DISKCACHE']==(b'1' if disk else b'0')
             if disk:
                 assert options[b'FEX_APP_CACHE_LOCATION']==b'C:\\fex-jit-cache\\'
@@ -144,7 +144,7 @@ def main():
             'native_elf_sha256':hashlib.sha256(a.elf.read_bytes()).hexdigest(),
             'checks':['ASan/UBSan gap observer: TLS, bounds, contention, failed counters, reset and off control',
                       'Linked ARM64 real Present-note path reports 100ms wall vs 10ms presenting-thread CPU; no producer logs',
-                      'Four sorted UTF8 environment blocks found in ELF; cache off default, on settings bounded; maxinst control retained'],
+                      'Six sorted UTF8 environment blocks found in ELF; cache off default, on settings bounded; maxinst control retained'],
             'source_hashes':{p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in paths},
             'generated_source_hashes':{'wine-nx-probe/source/runtime.c':hashlib.sha256((a.source/'wine-nx-probe/source/runtime.c').read_bytes()).hexdigest()}}
     a.output.write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report,indent=2))

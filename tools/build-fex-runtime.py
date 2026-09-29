@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 from fex2_prepare import prepare
@@ -67,7 +68,19 @@ def main():
     parser.add_argument('--launcher', action='store_true',help='Fextendo console launcher and preset selector')
     parser.add_argument('--memory-audit', action='store_true',help='Time native memory-budget queries on the launcher baseline')
     parser.add_argument('--memory-budget-filter', action='store_true',help='Decline costly optional memory-budget queries on Switch')
+    parser.add_argument("--short-trace", action="store_true", help="Bounded per-thread JIT/wait timing on v3.2; supports OFF control")
+    parser.add_argument("--dxvk-core3", action="store_true", help="Named dxvk-cs offload trial; requires short-trace baseline")
+    parser.add_argument('--polling', action='store_true', help='Sharded polling counters and shared yield timing; runtime OFF control retained')
+    parser.add_argument('--fast-api', action='store_true', help='Validated QPC/non-alertable delay gateway and bounded hotspot diagnostics')
     args = parser.parse_args()
+    if args.fast_api and not args.polling:
+        parser.error('--fast-api requires --polling')
+    if args.polling and not args.dxvk_core3:
+        parser.error('--polling requires --dxvk-core3')
+    if args.dxvk_core3 and not args.short_trace:
+        parser.error("--dxvk-core3 requires --short-trace")
+    if args.short_trace and not args.memory_budget_filter:
+        parser.error("--short-trace requires --memory-budget-filter")
     if args.memory_budget_filter and not args.memory_audit:
         parser.error('--memory-budget-filter requires --memory-audit')
     if args.memory_audit and not args.launcher:
@@ -132,7 +145,8 @@ def main():
                     sleep_deadline=args.sleep_deadline, worker_cores=args.worker_cores,
                     jit_log_queue=args.jit_log_queue, yield_burst=args.yield_burst,
                     yield_adaptive=args.yield_adaptive, stable_balance=args.stable_balance, gap_audit=args.gap_audit, launcher=args.launcher,
-                    memory_audit=args.memory_audit, memory_budget_filter=args.memory_budget_filter)
+                    memory_audit=args.memory_audit, memory_budget_filter=args.memory_budget_filter, short_trace=args.short_trace, dxvk_core3=args.dxvk_core3,
+                    polling=args.polling, fast_api=args.fast_api)
     (evidence / 'wine-patches.json').write_text(json.dumps(patches, indent=2) + '\n')
 
     devkit = Path('/opt/devkitpro')
@@ -177,9 +191,11 @@ def main():
         raise RuntimeError('Native dependencies changed during build')
     name = 'pes13-fex' if args.integration else 'pes13-fex2'
     title = 'PES13-NX FEX3' if args.integration else 'PES13 FEX2 x86 Test'
-    if args.launcher: title = 'FEXTendo / PES13'
+    if args.launcher: title = 'PES13 - FEXTendo'
     version = '0.3.0' if args.integration else '0.2.0'
-    if args.launcher: version = '0.3.2'
+    if args.launcher:
+        version = re.search(r'^#define FX_APP_VERSION "([0-9.]+)"',
+                            (project/'src/runtime/fextendo_ui.h').read_text(), re.M).group(1)
     nacp, nro = work / (name + '.nacp'), work / (name + '.nro')
     run([devkit / 'tools/bin/nacptool', '--create', title,
          'AndroSwitch Project' if args.launcher else 'PES13-NX / Wine / FEX-Emu', version, nacp])
@@ -209,6 +225,10 @@ def main():
               'launcher': args.launcher,
               'memory_audit': args.memory_audit,
               'memory_budget_filter': args.memory_budget_filter,
+              'short_trace': args.short_trace,
+              'dxvk_core3': args.dxvk_core3,
+              'polling': args.polling,
+              'fast_api': args.fast_api,
               'diagnostic': args.diagnostic,
               'resume_gate': args.resume_gate,
               'samecore_yield': args.samecore_yield,
@@ -293,9 +313,9 @@ def main():
     if args.launcher:
         report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
                                        for name in ('tools/fextendo_launcher_patches.py','src/runtime/fextendo_presets.h',
-                                                    'src/runtime/fextendo_ui.h','src/runtime/fextendo_launcher.h',
+                                                    'src/runtime/fextendo_renderers.h','src/runtime/fextendo_ui.h','src/runtime/fextendo_launcher.h','src/runtime/fextendo_logs.h',
                                                     'src/runtime/fextendo_timestamp_pixels.h','src/runtime/fextendo_timestamp.h',
-                                                    'src/runtime/fextendo_overlay_layer.h','src/runtime/fextendo_sfx.h')})
+                                                    'src/runtime/fextendo_overlay_layer.h','src/runtime/fextendo_display.h','src/runtime/fextendo_sfx.h')})
     if args.memory_audit:
         report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
                                        for name in ('tools/fex_memory_probe_patches.py', 'src/runtime/fex_memory_probe.h')})
@@ -311,6 +331,18 @@ def main():
                                        for name in ('tools/fex_yield_adaptive_patches.py',
                                                     'src/runtime/fex_yield_adaptive.h',
                                                     'src/runtime/fex_yield_adaptive_runtime.h')})
+    if args.short_trace:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+                                       for name in ('tools/fex_short_trace_patches.py', 'src/runtime/fex_short_trace.h')})
+    if args.dxvk_core3:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+                                       for name in ('tools/fex_dxvk_core3_patches.py', 'src/runtime/fex_dxvk_core3.h')})
+    if args.polling:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+            for name in ('tools/fex_polling_patches.py', 'src/runtime/fex_polling_counters.h', 'src/runtime/fex_polling_yield.h')})
+    if args.fast_api:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+            for name in ('tools/fex_fast_api_patches.py', 'src/runtime/fex_fast_api.h', 'src/runtime/fex_hot_profile.h')})
     if not args.native_only:
         pe = work / 'pe-build'
         pe.mkdir(exist_ok=True)

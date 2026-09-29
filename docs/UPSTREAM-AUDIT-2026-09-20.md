@@ -20,7 +20,7 @@ API snapshots and selected raw upstream files are saved under local/upstream-aud
 3. Autorun implements user APC dispatch on alertable waits, fixes 32-bit wait return status, and adds waitable timer signaling and exception handling. These are compatibility/scheduling candidates; no PES speedup has been established.
 4. Current upstream ARM64 RtlWow64SuspendThread performs handle validation and delegates local suspension to pWow64SuspendLocalThread. Our inherited PERF3 implementation instead reports success without suspension. This local divergence needs investigation independently of the upstream update. Upstream function presence alone does not prove all Horizon suspend semantics are correct.
 5. The only newer Mesa patch changes nouveau_horizon_runtime_shutdown: it leaves GPU channels for session teardown. It is not a match-rendering optimization.
-6. AMD64, VKD3D, frame generation, and launcher UI work account for part of the upstream expansion. Those features are not evidence of improved base FPS for 32-bit D3D9 PES13.
+6. AMD64, VKD3D, and launcher UI work account for part of the upstream expansion. Those features are not evidence of improved base FPS for 32-bit D3D9 PES13.
 
 ## Interpretation and next controlled experiment
 

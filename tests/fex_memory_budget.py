@@ -66,7 +66,7 @@ int main(void) {
     assert receipt['patch_sources']['src/runtime/fex_memory_budget.h']==sha(header)
     paths=['tests/fex_memory_budget.py','src/runtime/fex_memory_budget.h','tools/fex_memory_budget_patches.py']
     report={'passed':True,'hardware_tested':False,'native_elf_sha256':sha(a.elf),
-            'checks':['Removing client filter restores memory-audit Vulkan source exactly',
+            'checks':['Removing the client filter restores memory-audit Vulkan source exactly',
                       'Host extension record preserved; switch defaults OFF before platform initialization',
                       'Actual Wine bitfield layout under sanitizers: only the budget bit changes; opt-in restores capability',
                       'Final ELF defaults OFF; source and ELF hashes match build receipt (inlined filter not emulated)'],

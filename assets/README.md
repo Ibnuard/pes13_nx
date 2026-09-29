@@ -1,5 +1,14 @@
 # PES13-NX icon
 
+## FEXTendo v3.2
+
+Flat Settings/Credits tiles are in `fextendo-v3.2/`. Prompts, generation method
+and original synthesized audio provenance are in
+[fextendo-v3.2/GENERATION.md](fextendo-v3.2/GENERATION.md). Asset format 4 adds
+`settings-icon.rgba`, `credits-icon.rgba` and `background-music.bin` and requires
+the matching v3.2 NRO. Existing stadium, cover, wordmark and Inter assets remain.
+The supplied MP3 is not used.
+
 ## FEXTendo v3
 
 V3 retains the v2 generated stadium, flat gamepad and wordmark. The asset builder

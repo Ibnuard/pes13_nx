@@ -120,10 +120,12 @@ def main():
     old_emit = old.emit()
     old.add(0x123456, HIT)
     assert old.find(0x123456) == HIT  # L1 is populated.
-    assert old.dispatch(0x123456) == 'fallback'
+    old_l1_first = b'dispatcher=L1-first' in args.before.read_bytes()
+    assert old.dispatch(0x123456) == ('hit' if old_l1_first else 'fallback')
     old_instructions = old.instructions
     del old
-    checks = ['Previous binary enters CompileBlock despite a populated matching L1']
+    checks = ['Previous binary L1 dispatch behavior verified: ' +
+              ('L1-first hit' if old_l1_first else 'CompileBlock fallback despite matching L1')]
     emitted = []
     dispatches = 0
     for enabled in (False, True):
@@ -138,7 +140,7 @@ def main():
             for flags in (0, 0xf0000000, 0xa0000000):
                 assert m.dispatch(address, flags=flags) == 'hit'
                 dispatches += 1
-            assert m.instructions == 12  # Includes hook at the target.
+            assert m.instructions == 12 + int(m.fold_l1)  # Includes hook at target.
             assert m.dispatch(address, trap=True) == 'single_step'
             assert m.dispatch(address, single=True) == 'single_step'
             m.invalidate(address, erase=True)
@@ -149,7 +151,7 @@ def main():
             dispatches += 4
         address = 0x401020
         m.add(address, HIT)
-        m.add(address+0x10000, HIT)  # Same L1 index, distinct full tag.
+        m.add(m.colliding_guest(address), HIT)
         assert m.dispatch(address) == 'fallback'
         assert m.find(address) == HIT
         assert m.dispatch(address) == 'hit'
@@ -162,7 +164,7 @@ def main():
         assert m.find(address) == HIT and m.dispatch(address) == 'hit'
         # A tag alone must never branch through a null host pointer.
         base, mask = m.readq(m.obj+0x30), m.readq(m.obj+0x38)
-        m.vm.mem_write(base+(address & mask)*16, struct.pack('<QQ', 0, address))
+        m.vm.mem_write(base+m.l1_index(address, mask)*16, struct.pack('<QQ', 0, address))
         assert m.dispatch(address) == ('hit' if enabled else 'fallback')
         m.add(address, HIT)
         if enabled:
@@ -191,8 +193,10 @@ def main():
     report = {'passed':True, 'hardware_tested':False, 'checks':checks,
               'dll_sha256':hashlib.sha256(args.dll.read_bytes()).hexdigest(),
               'before_sha256':hashlib.sha256(args.before.read_bytes()).hexdigest(),
-              'old_instructions_to_compileblock':old_instructions,
-              'new_instructions_to_l1_target':12,
+              'before_dispatch_outcome':'hit' if old_l1_first else 'fallback',
+              'old_instructions_to_compileblock':None if old_l1_first else old_instructions,
+              'before_instructions_to_target':old_instructions,
+              'new_instructions_to_l1_target':12 + int(m.fold_l1),
               'emitted_sha256':emitted, 'before_emitted_sha256':old_emit,
               'test_sources':{name:hashlib.sha256((Path(__file__).parent/name).read_bytes()).hexdigest()
                               for name in ('fex_dispatch_cache.py', 'fex_lookup.py', 'fex_memory.py', 'fex_alloc.py')},

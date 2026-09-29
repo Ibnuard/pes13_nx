@@ -26,7 +26,7 @@ def apply(read, replace, project):
     extra = [r'FEX_APP_CACHE_LOCATION=C:\\fex-jit-cache\\\0',
              r'FEX_DISKCACHEFILEMAPPING=0\0', r'FEX_DISKCACHEANONCACHING=0\0',
              r'FEX_DISKCACHEMEMORYSIZE=0\0', r'FEX_DISKCACHEMAXFILESIZE=67108864\0']
-    for symbol in ('runtime_environment', 'fex_jit_large_environment'):
+    for symbol in ('runtime_environment', 'fex_jit_large_environment', 'fex_jit_small_environment'):
         pattern = re.compile(r'static const char '+symbol+r'\[\] =\n(?:    "(?:[^"\\\n]|\\.)*"(?:\n|;\n))+')
         match = pattern.search(read(name))
         if not match: raise ValueError('Missing environment '+symbol)
@@ -42,8 +42,9 @@ def apply(read, replace, project):
             '        const int disk_cache = wine_nx_config_file_bool(RUNTIME_DIR "/fex_diskcache", 0);\n'
             '        if (disk_cache) {\n'
             '            const int large = environment == fex_jit_large_environment;\n'
-            '            environment = large ? fex_jit_large_environment_disk : runtime_environment_disk;\n'
-            '            environment_bytes = large ? sizeof(fex_jit_large_environment_disk) : sizeof(runtime_environment_disk);\n'
+            '            const int small = environment == fex_jit_small_environment;\n'
+            '            environment = large ? fex_jit_large_environment_disk : small ? fex_jit_small_environment_disk : runtime_environment_disk;\n'
+            '            environment_bytes = large ? sizeof(fex_jit_large_environment_disk) : small ? sizeof(fex_jit_small_environment_disk) : sizeof(runtime_environment_disk);\n'
             '        }\n'
             '        log_line("[FEX3-DISKCACHE] requested=%d mapping=0 anonymous=0 memory_lru=0 main_file_limit_mb=64; actual cache use unverified", disk_cache);\n'+anchor)
     replace(name, '"pes13-fex3-stable-balance"', '"pes13-fex3-gap-audit"')

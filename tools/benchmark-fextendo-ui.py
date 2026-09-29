@@ -7,6 +7,7 @@ CODE=r'''
 #include <time.h>
 #include <assert.h>
 #include "fextendo_presets.h"
+#include "fextendo_renderers.h"
 #include "fextendo_ui.h"
 static double clock_ms(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return t.tv_sec*1000.0+t.tv_nsec/1000000.0;}
 int main(int argc,char **argv){
@@ -42,6 +43,7 @@ def main():
                     with zipfile.ZipFile(base) as z:data=z.read('source/src/runtime/'+name)
                 else:data=(ROOT/'src/runtime'/name).read_bytes()
                 (path/name).write_bytes(data)
+            (path/'fextendo_renderers.h').write_bytes((ROOT/'src/runtime/fextendo_renderers.h').read_bytes())
             (path/'bench.c').write_text(CODE)
             subprocess.run(['clang','-O3','-std=c11','-D_POSIX_C_SOURCE=200809L',str(path/'bench.c'),'-o',str(path/'bench')],check=True)
         # Alternate versions to avoid measuring only one under a warm/cold host.
