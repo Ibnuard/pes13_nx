@@ -7,13 +7,24 @@ import struct
 import capstone
 import pefile
 from unicorn import arm64_const as arm
-from fex_alloc import Model as BaseModel, TEB, coff_symbols, reg
+from fex_alloc import TEB, coff_symbols, reg
+from fex_counter import CounterModel as BaseModel
 
 
 class Model(BaseModel):
     tick = 19200000
 
     def hook(self, vm, pc, size, user):
+        # Clang may use the CRT import for the diagnostic string length.
+        # Model that library boundary; keep the metric/report code executable.
+        if self.hooks.get(pc) == 'strlen':
+            pointer, length = vm.reg_read(reg(0)), 0
+            while vm.mem_read(pointer + length, 1) != b'\0':
+                length += 1
+                assert length < 65536
+            vm.reg_write(reg(0), length)
+            vm.reg_write(arm.UC_ARM64_REG_PC, vm.reg_read(reg(30)))
+            return
         # Model only the physical clock register. Metric arithmetic, atomics,
         # rate gate, formatting and the x18-safe PE/native callback all execute.
         if self.base <= pc < self.base + 0x400000:
@@ -52,6 +63,8 @@ def main():
         bindings.append(name)
     assert symbols['PES13FexJitTimingInit'] in calls('BTCpuProcessInit')
     m=Model(args.dll,clobber_host_x18=True)
+    # Production initializes the PE CRT/environment before reading trace flags.
+    m.call('_ZN3FEX7Windows14InitCRTProcessEv'); assert not m.trapped
     m.call('PES13FexJitTimingInit'); assert not m.trapped
     start=m.call('PES13FexJitBegin'); assert start==19200000
     m.tick=start+960001

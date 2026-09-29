@@ -115,6 +115,7 @@ def main():
                          'src/fex/horizon_smc.h', 'src/fex/horizon_stall.h', 'src/fex/horizon_counter.h', 'src/fex/horizon_heap.h',
                          'src/fex/module_counter.cpp', 'tools/fex_horizon_patches.py']}
         for name in ('src/fex/horizon_fpu.h', 'src/fex/module_fpu.cpp',
+                     'src/fex/horizon_decode_set.h', 'tools/fex_decode_worklist_patches.py',
                      'src/fex/horizon_compile_trace.h', 'src/fex/module_compile_trace.cpp',
                      'tools/fex_compile_trace_patches.py',
                      'src/fex/horizon_jit_timing.h', 'src/fex/module_jit_timing.cpp'):

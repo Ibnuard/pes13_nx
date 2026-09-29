@@ -729,6 +729,9 @@ def apply(source, project, output):
             '    if (!Ptr) return nullptr; // Never protect a page derived from NULL.\n'
             '    uintptr_t LastPageAddr')
 
+    from fex_decode_worklist_patches import apply as apply_decode_worklists
+    apply_decode_worklists(replace)
+
     # The latest team-selection run exhausts low-4-GiB VM before Vulkan
     # allocation failure. FEX-private C/C++ heaps do not need guest mappings.
     # Keep WinAPI VirtualAlloc/guards unchanged, but route all CRT/container
