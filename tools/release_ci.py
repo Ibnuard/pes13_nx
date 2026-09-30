@@ -1,0 +1,139 @@
+"""GitHub release transport. Uses only the job-scoped GH_TOKEN via gh."""
+import argparse
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def gh(*args, data=None):
+    command = ['gh', *args]
+    if data is not None:
+        command += ['--input', '-']
+    result = subprocess.run(command, input=json.dumps(data) if data is not None else None,
+                            text=True, capture_output=True, check=True)
+    return json.loads(result.stdout) if result.stdout.strip() else None
+
+
+def repository():
+    repo = os.environ['GITHUB_REPOSITORY']
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo):
+        raise ValueError('Invalid GitHub repository')
+    return repo
+
+
+def version():
+    # Commit time and run number stay stable on reruns; no tag race or force push.
+    timestamp = subprocess.check_output(['git', 'show', '-s', '--format=%ct', 'HEAD'], text=True).strip()
+    date = datetime.fromtimestamp(int(timestamp), timezone.utc).strftime('%Y.%m.%d')
+    run = os.environ['GITHUB_RUN_NUMBER']
+    if not run.isdecimal():
+        raise ValueError('Invalid workflow run number')
+    value = 'v' + date + '.' + run
+    if os.environ['GITHUB_EVENT_NAME'] != 'push' or os.environ['GITHUB_REF'] not in ('refs/heads/main', 'refs/heads/master'):
+        value += '-preview'
+    with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+        output.write('version=' + value + '\n')
+    print(value)
+
+
+def fetch(output):
+    lock = json.loads((ROOT / 'release/runtime-lock.json').read_text())
+    output.mkdir(parents=True, exist_ok=True)
+    subprocess.run(['gh', 'release', 'download', lock['tag'], '--repo', repository(),
+                    '--pattern', lock['asset'], '--dir', str(output)], check=True)
+    if hashlib.sha256((output / lock['asset']).read_bytes()).hexdigest() != lock['sha256']:
+        raise ValueError('Downloaded runtime differs from committed SHA256')
+
+
+def validate_assets(folder, tag, commit):
+    expected = {f'FEXTendo-{tag}-sd.zip', 'pes13-fex.nro', 'FEXTendo-PES13.nsp', 'manifest.json'}
+    sums = {}
+    for line in (folder / 'SHA256SUMS').read_text().splitlines():
+        digest, name = line.split('  ', 1)
+        if name in sums or name not in expected or not re.fullmatch('[0-9a-f]{64}', digest):
+            raise ValueError('Invalid release checksum entry')
+        sums[name] = digest
+    if set(sums) != expected or {p.name for p in folder.iterdir()} != expected | {'SHA256SUMS'}:
+        raise ValueError('Release asset set differs from expected output')
+    for name, digest in sums.items():
+        if hashlib.sha256((folder / name).read_bytes()).hexdigest() != digest:
+            raise ValueError('Release asset checksum mismatch: ' + name)
+    manifest = json.loads((folder / 'manifest.json').read_text())
+    if manifest['source_commit'] != commit or manifest['package_version'] != tag:
+        raise ValueError('Artifact belongs to a different commit or release')
+    return manifest
+
+
+def publish(folder, tag, commit):
+    if not re.fullmatch(r'v\d{4}\.\d{2}\.\d{2}\.\d+', tag) or not re.fullmatch('[0-9a-f]{40}', commit):
+        raise ValueError('Invalid production release identity')
+    repo = repository()
+    prefix = 'repos/' + repo
+    manifest = validate_assets(folder, tag, commit)
+    # A tag must always refer to the exact commit whose package was validated.
+    refs = gh('api', prefix + '/git/matching-refs/tags/' + tag)
+    refs = [r for r in refs if r['ref'] == 'refs/tags/' + tag]
+    if refs:
+        if refs[0]['object']['sha'] != commit or refs[0]['object']['type'] != 'commit':
+            raise ValueError('Existing release tag targets a different commit')
+    else:
+        gh('api', prefix + '/git/refs', '--method', 'POST', data={'ref': 'refs/tags/' + tag, 'sha': commit})
+    # Listing with pagination also distinguishes API/auth failures from a missing release.
+    releases = gh('api', prefix + '/releases?per_page=100', '--paginate', '--slurp')
+    release = next((r for page in releases for r in page if r['tag_name'] == tag), None)
+    if release and not release['draft']:
+        existing = {a['name']: a for a in release['assets']}
+        if set(existing) != {p.name for p in folder.iterdir()}:
+            raise ValueError('Published release has an unexpected asset set; refusing to overwrite')
+        # Published assets are never replaced, even by a workflow rerun.
+        for p in folder.iterdir():
+            if existing[p.name].get('digest') != 'sha256:' + hashlib.sha256(p.read_bytes()).hexdigest():
+                raise ValueError('Published asset differs from rerun: ' + p.name)
+        print('Already published: ' + release['html_url'])
+        return
+    if not release:
+        notes = gh('api', prefix + '/releases/generate-notes', '--method', 'POST',
+                   data={'tag_name': tag, 'target_commitish': commit})
+        body = ('Download **FEXTendo-' + tag + '-sd.zip** for a complete installation. '
+                'It includes the NRO, NSP forwarder, Wine/FEX/DXVK runtime, launcher assets, '
+                'presets and settings.dat. Empty game/save folders are preserved.\n\n'
+                'Copy your own PES 2013 PC v1.0 files into `switch/pes13-fex/drive_c/PES13/`. '
+                'Export your own installation metadata as described in README.txt. '
+                'Game files and private installation metadata are not included.\n\n'
+                'Runtime: production v1 + launching fix, pre-DFE DLL; NRO display version '
+                + manifest['runtime_version'] + '. Package validation is not a Switch hardware test. '
+                'The standalone NRO/NSP assets are for existing installations.\n\n' + notes['body'])
+        release = gh('api', prefix + '/releases', '--method', 'POST', data={
+            'tag_name': tag, 'target_commitish': commit, 'name': 'FEXTendo ' + tag,
+            'body': body, 'draft': True, 'prerelease': False})
+    # Upload to a draft; a partial network failure can safely be resumed.
+    subprocess.run(['gh', 'release', 'upload', tag, '--repo', repo, '--clobber',
+                    *[str(p) for p in sorted(folder.iterdir())]], check=True)
+    result = gh('api', prefix + '/releases/' + str(release['id']), '--method', 'PATCH',
+                data={'draft': False, 'make_latest': 'true'})
+    print('Published: ' + result['html_url'])
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest='command', required=True)
+    sub.add_parser('version')
+    download = sub.add_parser('fetch')
+    download.add_argument('--output', type=Path, required=True)
+    release = sub.add_parser('publish')
+    release.add_argument('--input', type=Path, required=True)
+    release.add_argument('--tag', required=True)
+    release.add_argument('--commit', required=True)
+    args = parser.parse_args()
+    if args.command == 'version':
+        version()
+    elif args.command == 'fetch':
+        fetch(args.output)
+    else:
+        publish(args.input, args.tag, args.commit)
