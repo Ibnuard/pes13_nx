@@ -8,7 +8,7 @@ int main(int argc,char **argv) {
     assert(argc==3);assert(fx_art_load(&art,argv[1]));
     uint32_t *buffer=calloc(1296*720,4);assert(buffer);
     struct fx_canvas c={buffer,1296,&art};
-    for(i=0;i<15;i++){
+    for(i=0;i<20;i++){
         v.screen=i<2?FX_HOME:i<4?FX_SETTINGS:i==4?FX_LOADING:FX_FAILED;
         v.tile=i==1;v.tile_mix=v.tile;v.sound=1;v.battery=82;v.wall_time=1800000000;v.last_played=v.wall_time-7200;v.row=i==3?3:0;v.selected=0;v.frame=32;v.saved=i==3;
         v.fatal=i==6;v.message=i==4?"Loading game files...":"Could not save the preset. Check the SD card.";
@@ -17,8 +17,15 @@ int main(int argc,char **argv) {
         v.splash_ms=i==9?600:0;
         if(i>=10){v.screen=i==10?FX_HOME:FX_CREDITS;v.tile=2;v.tile_mix=2;v.credit_page=i==12;}
         if(i>=13){v.screen=FX_SETTINGS;v.row=i-6;v.renderer=(i-13)%2;}
+        if(i==15){v.screen=FX_HOME;v.tile=3;v.tile_mix=3;}
+        if(i>=16){
+            v.screen=FX_GAMEPAD;v.row=i==17;v.players=2;v.message=NULL;v.pad_test=i==17;
+            v.pads[0]=fx_pad_normalize(i==16?FX_PAD_FULL:FX_PAD_LEFT,1,FX_PAD_DOWN|FX_PAD_SL,0,-24000,0,0);
+            v.pads[1]=fx_pad_normalize(FX_PAD_RIGHT,i!=18,FX_PAD_X|FX_PAD_SR,0,0,24000,0);
+        }
         v.settings_scroll=fx_settings_scroll_target(v.row);
         fx_render(&c,&v);
+        if(i==19)fx_gamepad_pause(&c,v.pads,2,1,0,1);
         snprintf(path,sizeof(path),"%s/screen-%d.ppm",argv[2],i);FILE *f=fopen(path,"wb");assert(f);
         fprintf(f,"P6\n1280 720\n255\n");
         for(y=0;y<720;y++){
@@ -28,6 +35,19 @@ int main(int argc,char **argv) {
     }
     /* Idle tiles and disabled Play must not change when the glow phase changes. */
     uint32_t *snapshot=malloc(1296*720*4);assert(snapshot);
+    /* Outside Test Controls, input cannot animate either controller card. */
+    v.screen=FX_GAMEPAD;v.pad_test=0;v.row=0;v.message=NULL;
+    v.pads[0]=fx_pad_normalize(FX_PAD_FULL,1,0,0,0,0,0);
+    v.pads[1]=fx_pad_normalize(FX_PAD_RIGHT,1,0,0,0,0,0);
+    fx_render(&c,&v);memcpy(snapshot,buffer,1296*720*4);
+    v.pads[0]=fx_pad_normalize(FX_PAD_FULL,1,0xffff,32000,-32000,-25000,25000);
+    v.pads[1]=fx_pad_normalize(FX_PAD_RIGHT,1,FX_PAD_X|FX_PAD_SR,0,0,32000,16000);
+    fx_render(&c,&v);assert(!memcmp(snapshot,buffer,1296*720*4));
+    v.pad_test=1;fx_render(&c,&v);unsigned test_changes=0;
+    for(y=280;y<505;y++)for(x=64;x<1216;x++)test_changes+=snapshot[y*1296+x]!=buffer[y*1296+x];
+    assert(test_changes>500);
+    v.pad_test=0;fx_render(&c,&v);assert(!memcmp(snapshot,buffer,1296*720*4));
+    v.pads[1].connected=0;fx_render(&c,&v);assert(memcmp(snapshot,buffer,1296*720*4));
     v.screen=FX_HOME;v.splash_ms=0;v.tile=0;v.tile_mix=0;v.frame=0;fx_render(&c,&v);
     memcpy(snapshot,buffer,1296*720*4);v.frame=140;fx_render(&c,&v);
     unsigned active_changed=0;
@@ -77,11 +97,19 @@ int main(int argc,char **argv) {
     c.clip_top=c.clip_bottom=0;
     fx_art_free(&art);free(buffer);
     for(i=0;i<4;i++){
-        unsigned char data[852],expected[852];
+        unsigned char data[852],expected[852],custom[852];
+        /* Existing canonical DirectInput settings must migrate to XInput,
+         * preserving keyboard/DirectInput bindings and all unrelated flags. */
+        snprintf(path,sizeof(path),"%s%s",argv[1],fx_targets[0]);assert(fx_read(path,custom,852)==852);
+        custom[15]&=~2;custom[340]=(unsigned char)(40+i);custom[480]=(unsigned char)(60+i);
+        uint16_t custom_crc=fx_crc(custom);custom[12]=custom_crc;custom[13]=custom_crc>>8;
+        assert(fx_write(path,custom,852));
         assert(fx_apply_preset(argv[1],i));assert(fx_selected(argv[1])==i);
         for(x=0;x<3;x++){
             snprintf(path,sizeof(path),"%s%s",argv[1],fx_targets[x]);assert(fx_read(path,data,852)==852);
             assert(fx_valid_settings(data,852));assert(data[14]&1);assert(fx_u32(data+24)==1);
+            assert(data[15]&2);assert(data[15]==(custom[15]|2));
+            assert(!memcmp(data+32,custom+32,852-32));
             assert(fx_u32(data+16)==(i==2?960:1280));assert(fx_u32(data+20)==(i==2?540:720));
             if(!x)memcpy(expected,data,852);else assert(!memcmp(expected,data,852));
         }

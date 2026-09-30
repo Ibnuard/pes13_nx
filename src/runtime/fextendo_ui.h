@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include "fextendo_gamepad.h"
 #define FX_W 1280
 #define FX_H 720
 #define FX_COLOR(r,g,b) ((uint32_t)(r)|((uint32_t)(g)<<8)|((uint32_t)(b)<<16)|0xff000000u)
@@ -20,18 +21,31 @@
 #ifndef FX_SPLASH_MS
 #define FX_SPLASH_MS 2400
 #endif
-enum fx_screen { FX_HOME,FX_SETTINGS,FX_LOADING,FX_FAILED,FX_CREDITS };
-struct fx_view { enum fx_screen screen;int tile,row,selected,saved,fatal,timestamp,sound,battery,charging,credit_page,music,renderer;float tile_mix,settings_scroll;unsigned frame,splash_ms;uint64_t last_played,wall_time;const char *message; };
-struct fx_art { uint32_t *bg,*blur,*logo,*icon,*buttons,*gamepad,*wordmark,*settings_icon,*credits_icon,*scene[FX_SCENES],*tiles[3][FX_TILE_MAX-FX_TILE_MIN+1];uint16_t spinner[43*43];float decay[4097];unsigned char *font;size_t font_size; };
+enum fx_screen { FX_HOME,FX_SETTINGS,FX_LOADING,FX_FAILED,FX_CREDITS,FX_GAMEPAD };
+struct fx_view { struct fx_pad_sample pads[2]; unsigned players; int pad_test; enum fx_screen screen;int tile,row,selected,saved,fatal,timestamp,sound,battery,charging,credit_page,music,renderer;float tile_mix,settings_scroll;unsigned frame,splash_ms;uint64_t last_played,wall_time;const char *message; };
+struct fx_art { uint32_t *bg,*blur,*logo,*icon,*buttons,*gamepad,*wordmark,*settings_icon,*credits_icon,*gamepad_icon,*scene[FX_SCENES],*tiles[4][FX_TILE_MAX-FX_TILE_MIN+1];uint16_t spinner[43*43];float decay[4097];unsigned char *font;size_t font_size; };
 struct fx_canvas { uint32_t *pixels;int stride;const struct fx_art *art;int clip_top,clip_bottom,clip_left,clip_right; };
 static int fx_prepare_art(struct fx_art *a);
 static void *fx_asset_read(const char *path,size_t expected) {
     void *p=malloc(expected);if(!p)return NULL;
     if(fx_read(path,p,expected)!=expected){free(p);return NULL;}return p;
 }
-static void fx_art_free(struct fx_art *a) {for(int i=0;i<FX_SCENES;i++)free(a->scene[i]);for(int k=0;k<3;k++)for(int i=0;i<=FX_TILE_MAX-FX_TILE_MIN;i++)free(a->tiles[k][i]);free(a->settings_icon);free(a->credits_icon);free(a->bg);free(a->blur);free(a->logo);free(a->icon);free(a->buttons);free(a->gamepad);free(a->wordmark);free(a->font);memset(a,0,sizeof(*a));}
+static void fx_art_free(struct fx_art *a) {for(int i=0;i<FX_SCENES;i++)free(a->scene[i]);for(int k=0;k<4;k++)for(int i=0;i<=FX_TILE_MAX-FX_TILE_MIN;i++)free(a->tiles[k][i]);free(a->gamepad_icon);free(a->settings_icon);free(a->credits_icon);free(a->bg);free(a->blur);free(a->logo);free(a->icon);free(a->buttons);free(a->gamepad);free(a->wordmark);free(a->font);memset(a,0,sizeof(*a));}
+static int fx_font_load(struct fx_art *a,const char *root) {
+    char p[768];struct stat st;unsigned i;
+    snprintf(p,sizeof(p),"%s/launcher/font.bin",root);
+    if(stat(p,&st)||st.st_size<6088||st.st_size>1024*1024)return 0;
+    a->font_size=st.st_size;a->font=fx_asset_read(p,a->font_size);
+    if(!a->font||memcmp(a->font,"FXF2",4)||fx_u32(a->font+4)!=a->font_size-6088)return 0;
+    for(i=0;i<380;i++){
+        const unsigned char *g=a->font+8+i*16;
+        unsigned w=g[8]|g[9]<<8,h=g[10]|g[11]<<8;
+        if(w>96||h>96||fx_u32(g)>a->font_size-6088||w*h>a->font_size-6088-fx_u32(g))return 0;
+    }
+    return 1;
+}
 static int fx_art_load(struct fx_art *a,const char *root) {
-    char p[768];struct stat st;unsigned i;memset(a,0,sizeof(*a));
+    char p[768];memset(a,0,sizeof(*a));
     snprintf(p,sizeof(p),"%s/launcher/background.rgba",root);a->bg=fx_asset_read(p,FX_W*FX_H*4);
     snprintf(p,sizeof(p),"%s/launcher/blur.rgba",root);a->blur=fx_asset_read(p,FX_W*FX_H*4);
     snprintf(p,sizeof(p),"%s/launcher/logo.rgba",root);a->logo=fx_asset_read(p,480*158*4);
@@ -41,15 +55,7 @@ static int fx_art_load(struct fx_art *a,const char *root) {
     snprintf(p,sizeof(p),"%s/launcher/buttons.rgba",root);a->buttons=fx_asset_read(p,7*80*80*4);
     snprintf(p,sizeof(p),"%s/launcher/gamepad.rgba",root);a->gamepad=fx_asset_read(p,128*96*4);
     snprintf(p,sizeof(p),"%s/launcher/wordmark.rgba",root);a->wordmark=fx_asset_read(p,600*128*4);
-    snprintf(p,sizeof(p),"%s/launcher/font.bin",root);
-    if(stat(p,&st)||st.st_size<6088||st.st_size>1024*1024)goto fail;
-    a->font_size=st.st_size;a->font=fx_asset_read(p,a->font_size);
-    if(!a->font||memcmp(a->font,"FXF2",4)||fx_u32(a->font+4)!=a->font_size-6088)goto fail;
-    for(i=0;i<380;i++){
-        const unsigned char *g=a->font+8+i*16;
-        unsigned w=g[8]|g[9]<<8,h=g[10]|g[11]<<8;
-        if(w>96||h>96||fx_u32(g)>a->font_size-6088||w*h>a->font_size-6088-fx_u32(g))goto fail;
-    }
+    if(!fx_font_load(a,root))goto fail;
     if(a->settings_icon&&a->credits_icon&&a->bg&&a->blur&&a->logo&&a->icon&&a->buttons&&a->gamepad&&a->wordmark&&fx_prepare_art(a))return 1;
 fail:fx_art_free(a);return 0;
 }
@@ -371,9 +377,14 @@ static int fx_prepare_art(struct fx_art *a) {
         unsigned phase=(unsigned)(angle*256.f/6.28318530718f)&255;
         a->spinner[(y+21)*43+x+21]=(uint16_t)((coverage<<8)|phase);
     }
+    a->gamepad_icon=calloc(256*256,4);if(!a->gamepad_icon)return 0;
+    /* Restrict the canvas so drawing helpers cannot escape the 256px icon. */
+    struct fx_canvas icon_canvas={a->gamepad_icon,256,a,0,256,0,256};
+    fx_rect(&icon_canvas,0,0,256,256,FX_COLOR(15,42,62),255);
+    fx_image(&icon_canvas,a->gamepad,128,96,24,48,208,156,0,255);
     /* Bilinear RGB for opaque cover art; rounded coverage remains an AA mask. */
-    for(int id=0;id<3;id++)for(int w=FX_TILE_MIN;w<=FX_TILE_MAX;w++){
-        const uint32_t *icon=id==0?a->icon:id==1?a->settings_icon:a->credits_icon;
+    for(int id=0;id<4;id++)for(int w=FX_TILE_MIN;w<=FX_TILE_MAX;w++){
+        const uint32_t *icon=id==0?a->icon:id==1?a->settings_icon:id==2?a->gamepad_icon:a->credits_icon;
         uint32_t *tile=a->tiles[id][w-FX_TILE_MIN]=malloc((size_t)w*w*4);if(!tile)return 0;
         for(int y=0;y<w;y++)for(int x=0;x<w;x++){
             float sx=fx_clamp((x+.5f)*256/w-.5f,0,255),sy=fx_clamp((y+.5f)*256/w-.5f,0,255);
@@ -457,6 +468,7 @@ static void fx_splash(struct fx_canvas *c,unsigned remaining) {
     int width=(int)(100*fx_ease((elapsed-550)/950.f));
     if(width)fx_round(c,640-width/2,460,width,2,1,FX_BLUE,(unsigned)(170*fade));
 }
+#include "fextendo_gamepad_ui.h"
 static void fx_render(struct fx_canvas *c,const struct fx_view *v) {
     int y,i;char status[96];
     int scene_index=v->splash_ms?3:v->screen==FX_LOADING?2:v->screen==FX_CREDITS?4+(v->credit_page!=0):v->screen==FX_SETTINGS;
@@ -466,30 +478,31 @@ static void fx_render(struct fx_canvas *c,const struct fx_view *v) {
     if(v->screen==FX_LOADING){fx_spinner(c,640,462,v->frame);return;}
     fx_battery(c,v);
     if(v->screen==FX_CREDITS)return;
+    if(v->screen==FX_GAMEPAD){fx_gamepad_page(c,v);return;}
     if(v->screen!=FX_SETTINGS){
         fx_play(c,76,552,v->tile==0,v->frame);
         char played[48];fx_last_played_label(played,v->last_played,v->wall_time);
         fx_text(c,76,623,"Last played",0,FX_MUTED);
         fx_text(c,76+fx_text_width(c->art,"Last played",0)+15,623,played,0,FX_WHITE);
         c->clip_left=600;c->clip_right=FX_W;
-        float slide=fx_clamp(v->tile_mix-1,0,1);
-        for(i=0;i<3;i++){
+        float slide=fx_clamp(v->tile_mix-1,0,2);
+        for(i=0;i<4;i++){
             float amount=fx_clamp(1-fabsf(v->tile_mix-i),0,1);
-            int w=(int)lroundf(FX_TILE_MIN+(FX_TILE_MAX-FX_TILE_MIN)*amount),x=750+260*i-(int)lroundf(130*slide)-w/2,yy=384-w/2;
+            int w=(int)lroundf(FX_TILE_MIN+(FX_TILE_MAX-FX_TILE_MIN)*amount),x=750+260*i-(int)lroundf(260*slide)-w/2,yy=384-w/2;
             int selected=v->tile==i;
             fx_tile_image(c,x,yy,w,i,!selected);
             if(selected)fx_glass(c,x,yy,w,w,22,v->frame,1);
             if(selected)fx_glow(c,x,yy,w,w,22,v->frame,1.f);
-            fx_text(c,x+9,yy+w+16,i==2?"Credits":i?"Settings":"PES13",1,selected?FX_WHITE:FX_MUTED);
+            fx_text(c,x+9,yy+w+16,i==3?"Credits":i==2?"Gamepad":i?"Settings":"PES13",1,selected?FX_WHITE:FX_MUTED);
             fx_circle(c,x+14,yy+w+65,4,selected?FX_BLUE:FX_COLOR(90,112,140));
-            fx_text(c,x+28,yy+w+53,i==2?"About":i?"Preferences":"Launch",0,selected?FX_BLUE:FX_MUTED);
+            fx_text(c,x+28,yy+w+53,i==3?"About":i==2?"Controllers":i?"Preferences":"Launch",0,selected?FX_BLUE:FX_MUTED);
         }
         c->clip_left=c->clip_right=0;
         /* Fade the cropped tile back into the cached background, including
          * its label and halo. No extra full-screen offscreen render. */
         for(int x=600;x<FX_W;x++){
-            float left=fx_clamp((732-x)/132.f,0,1)*slide;
-            float right=fx_clamp((x-1160)/120.f,0,1)*(1-slide);
+            float left=fx_clamp((732-x)/132.f,0,1)*fx_clamp(slide,0,1);
+            float right=fx_clamp((x-1160)/120.f,0,1)*fx_clamp(2-slide,0,1);
             unsigned alpha=(unsigned)(255*fmaxf(left,right));
             if(alpha)for(y=230;y<604;y++){
                 uint32_t *p=c->pixels+y*c->stride+x;*p=fx_blend(*p,scene[y*FX_W+x],alpha);
