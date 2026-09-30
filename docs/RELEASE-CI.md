@@ -6,10 +6,14 @@ downloadable Actions artifact. A successful push to `main`/`master` also creates
 a tag and publishes a GitHub Release with generated changelog and the same
 validated assets. Merging a PR causes that push automatically.
 
-The automatic package version is `vYYYY.MM.DD.RUN_NUMBER` (commit date in UTC).
-Reruns retain the tag and verify any already published asset rather than
-overwriting it. Preview runs have a `-preview` suffix and never publish releases.
-The package version is separate from the NRO's embedded runtime version, 0.3.7.
+User releases use a title such as **PES13 FEXTendo V.0.3.7** and a tag such as
+`v0.3.7`. Automatic package runs retain that runtime version and add a revision:
+tag `v0.3.7-r42`, title **PES13 FEXTendo V.0.3.7 (r42)**. The revision is the
+workflow run number, so separate merges cannot collide and reruns keep their
+original tag. The displayed version comes from `release/runtime-lock.json`.
+Preview runs add `-preview` and never publish releases. Existing published
+assets are verified rather than overwritten. User releases are marked Latest;
+the dependency input remains a separate prerelease for CI.
 
 ## Downloads
 

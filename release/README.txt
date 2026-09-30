@@ -23,8 +23,8 @@ not included. Close the game before updating; back up your own settings.
 
 The standalone NRO and NSP downloads are for updating an existing complete
 installation. New installations need the -sd.zip, not just those binaries.
-See manifest.json and SHA256SUMS for exact versions and hashes. The release
-date/build number is separate from the NRO display version (0.3.7).
+See manifest.json and SHA256SUMS for exact versions and hashes. Releases use
+PES13 FEXTendo V.0.3.7; automatic packages add a revision such as r42.
 CI checks package integrity and imports; launching still requires a Switch
 hardware test. Two-player controller support is not implemented yet.
 

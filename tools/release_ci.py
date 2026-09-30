@@ -1,6 +1,5 @@
 """GitHub release transport. Uses only the job-scoped GH_TOKEN via gh."""
 import argparse
-from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -28,18 +27,27 @@ def repository():
 
 
 def version():
-    # Commit time and run number stay stable on reruns; no tag race or force push.
-    timestamp = subprocess.check_output(['git', 'show', '-s', '--format=%ct', 'HEAD'], text=True).strip()
-    date = datetime.fromtimestamp(int(timestamp), timezone.utc).strftime('%Y.%m.%d')
+    # Keep the runtime version visible; the revision distinguishes package runs.
+    runtime = json.loads((ROOT / 'release/runtime-lock.json').read_text())['runtime_version']
+    if not re.fullmatch(r'\d+\.\d+\.\d+', runtime):
+        raise ValueError('Invalid runtime version')
     run = os.environ['GITHUB_RUN_NUMBER']
     if not run.isdecimal():
         raise ValueError('Invalid workflow run number')
-    value = 'v' + date + '.' + run
+    value = 'v' + runtime + '-r' + run
     if os.environ['GITHUB_EVENT_NAME'] != 'push' or os.environ['GITHUB_REF'] not in ('refs/heads/main', 'refs/heads/master'):
         value += '-preview'
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
         output.write('version=' + value + '\n')
     print(value)
+
+
+def release_title(tag):
+    match = re.fullmatch(r'v(\d+\.\d+\.\d+)(?:-r(\d+))?', tag)
+    if not match:
+        raise ValueError('Invalid production release identity')
+    title = 'PES13 FEXTendo V.' + match[1]
+    return title + (' (r' + match[2] + ')' if match[2] else '')
 
 
 def fetch(output):
@@ -71,7 +79,8 @@ def validate_assets(folder, tag, commit):
 
 
 def publish(folder, tag, commit):
-    if not re.fullmatch(r'v\d{4}\.\d{2}\.\d{2}\.\d+', tag) or not re.fullmatch('[0-9a-f]{40}', commit):
+    title = release_title(tag)
+    if not re.fullmatch('[0-9a-f]{40}', commit):
         raise ValueError('Invalid production release identity')
     repo = repository()
     prefix = 'repos/' + repo
@@ -110,7 +119,7 @@ def publish(folder, tag, commit):
                 + manifest['runtime_version'] + '. Package validation is not a Switch hardware test. '
                 'The standalone NRO/NSP assets are for existing installations.\n\n' + notes['body'])
         release = gh('api', prefix + '/releases', '--method', 'POST', data={
-            'tag_name': tag, 'target_commitish': commit, 'name': 'FEXTendo ' + tag,
+            'tag_name': tag, 'target_commitish': commit, 'name': title,
             'body': body, 'draft': True, 'prerelease': False})
     # Upload to a draft; a partial network failure can safely be resumed.
     subprocess.run(['gh', 'release', 'upload', tag, '--repo', repo, '--clobber',

@@ -61,7 +61,8 @@ private. Close the game before replacing runtime files.
 
 Game-data and save directories are preserved in the release ZIP even when
 empty. PRs targeting `main`/`master` produce a downloadable preview artifact;
-successful merges publish a dated tag, release and generated changelog.
+successful merges publish a versioned tag, release and generated changelog
+(for example, `PES13 FEXTendo V.0.3.7`, with a revision for automatic packages).
 See [release CI and runtime updates](docs/RELEASE-CI.md) for the approved
 production input, checks and instructions for updating the runtime binaries.
 

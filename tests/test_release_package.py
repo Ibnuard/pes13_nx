@@ -97,18 +97,18 @@ class PackageTests(unittest.TestCase):
     def test_publish_rejects_asset_from_another_commit(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            files = {'FEXTendo-v2026.09.30.1-sd.zip': b'zip', 'pes13-fex.nro': b'nro',
+            files = {'FEXTendo-v0.3.7-r1-sd.zip': b'zip', 'pes13-fex.nro': b'nro',
                      'FEXTendo-PES13.nsp': b'nsp', 'manifest.json': package.encoded({
-                         'package_version': 'v2026.09.30.1', 'source_commit': 'a' * 40})}
+                         'package_version': 'v0.3.7-r1', 'source_commit': 'a' * 40})}
             for name, data in files.items():
                 (root / name).write_bytes(data)
             (root / 'SHA256SUMS').write_text(''.join(package.sha(d) + '  ' + n + '\n' for n, d in files.items()))
-            ci.validate_assets(root, 'v2026.09.30.1', 'a' * 40)
+            ci.validate_assets(root, 'v0.3.7-r1', 'a' * 40)
             with self.assertRaisesRegex(ValueError, 'different commit'):
-                ci.validate_assets(root, 'v2026.09.30.1', 'b' * 40)
+                ci.validate_assets(root, 'v0.3.7-r1', 'b' * 40)
             (root / 'pes13-fex.nro').write_bytes(b'tampered')
             with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
-                ci.validate_assets(root, 'v2026.09.30.1', 'a' * 40)
+                ci.validate_assets(root, 'v0.3.7-r1', 'a' * 40)
 
     def test_pr_and_manual_runs_always_get_preview_versions(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -119,20 +119,23 @@ class PackageTests(unittest.TestCase):
                 out = Path(temp) / (event + ref.replace('/', '-'))
                 env = {'GITHUB_OUTPUT': str(out), 'GITHUB_EVENT_NAME': event,
                        'GITHUB_REF': ref, 'GITHUB_RUN_NUMBER': '42'}
-                with patch.dict(os.environ, env), patch.object(ci.subprocess, 'check_output', return_value='1790726400'):
+                with patch.dict(os.environ, env):
                     ci.version()
                     first = out.read_text()
                     ci.version()
                     self.assertEqual(out.read_text(), first + first)
                     self.assertEqual(first.strip().endswith('-preview'), preview)
+                    self.assertTrue(first.startswith('version=v0.3.7-r42'))
+                    self.assertEqual(ci.release_title('v0.3.7'), 'PES13 FEXTendo V.0.3.7')
+                    self.assertEqual(ci.release_title('v0.3.7-r42'), 'PES13 FEXTendo V.0.3.7 (r42)')
 
     def test_existing_tag_for_another_commit_cannot_be_published(self):
-        ref = [{'ref': 'refs/tags/v2026.09.30.1', 'object': {'sha': 'b' * 40, 'type': 'commit'}}]
+        ref = [{'ref': 'refs/tags/v0.3.7-r1', 'object': {'sha': 'b' * 40, 'type': 'commit'}}]
         with patch.object(ci, 'repository', return_value='owner/repo'), \
                 patch.object(ci, 'validate_assets', return_value={}), \
                 patch.object(ci, 'gh', return_value=ref) as api:
             with self.assertRaisesRegex(ValueError, 'different commit'):
-                ci.publish(Path('/unused'), 'v2026.09.30.1', 'a' * 40)
+                ci.publish(Path('/unused'), 'v0.3.7-r1', 'a' * 40)
             self.assertEqual(api.call_count, 1)
 
     def test_failed_upload_leaves_release_as_draft(self):
@@ -141,16 +144,16 @@ class PackageTests(unittest.TestCase):
             def fake_gh(*args, data=None):
                 calls.append((args, data))
                 if 'matching-refs' in args[1]:
-                    return [{'ref': 'refs/tags/v2026.09.30.1', 'object': {'sha': 'a' * 40, 'type': 'commit'}}]
+                    return [{'ref': 'refs/tags/v0.3.7-r1', 'object': {'sha': 'a' * 40, 'type': 'commit'}}]
                 if '/releases?' in args[1]:
-                    return [[{'id': 123, 'tag_name': 'v2026.09.30.1', 'draft': True}]]
+                    return [[{'id': 123, 'tag_name': 'v0.3.7-r1', 'draft': True}]]
                 self.fail('Unexpected publish API call')
             with patch.object(ci, 'repository', return_value='owner/repo'), \
                     patch.object(ci, 'validate_assets', return_value={}), \
                     patch.object(ci, 'gh', side_effect=fake_gh), \
                     patch.object(ci.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, 'upload')):
                 with self.assertRaises(subprocess.CalledProcessError):
-                    ci.publish(Path(temp), 'v2026.09.30.1', 'a' * 40)
+                    ci.publish(Path(temp), 'v0.3.7-r1', 'a' * 40)
             self.assertEqual(len(calls), 2)
 
 
