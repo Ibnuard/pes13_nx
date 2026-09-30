@@ -43,9 +43,9 @@ def safe_name(name):
 
 
 def fingerprints(root=ROOT):
-    paths = list((root / 'src').rglob('*'))
-    paths += [p for p in (root / 'tools').glob('*.py')
-              if 'patch' in p.name or p.name.startswith(('build-', 'fex2_prepare'))]
+    paths = list((root / 'src').rglob('*')) + list((root / 'patches').rglob('*'))
+    paths += [p for p in (root / 'tools').glob('*') if p.is_file()
+              and ('patch' in p.name or p.name.startswith(('build-', 'bootstrap-', 'fex2_prepare')))]
     paths += [root / 'dependencies.json', root / 'assets/fextendo-v3/nro-icon.jpg']
     return {p.relative_to(root).as_posix(): sha(p.read_bytes()) for p in sorted(paths)
             if p.is_file() and '__pycache__' not in p.parts and p.suffix not in ('.md', '.pyc')}

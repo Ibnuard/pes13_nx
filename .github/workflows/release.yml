@@ -59,7 +59,7 @@ jobs:
     permissions:
       contents: write
     concurrency:
-      group: fextendo-release-${{ github.repository }}
+      group: fextendo-release-${{ github.repository }}-${{ needs.package.outputs.version }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1

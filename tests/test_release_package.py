@@ -68,6 +68,22 @@ class PackageTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'SHA256'):
                 package.read_runtime(root / 'good.zip', {'sha256': '0' * 64})
 
+    def test_build_shell_scripts_and_wine_patches_are_fingerprinted(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for name in ('tools/build-native.sh', 'tools/bootstrap-wsl.sh', 'patches/wine-nx.patch'):
+                p = root / name
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text('approved build input')
+            lock = {'source_fingerprints': package.fingerprints(root)}
+            self.assertEqual(len(lock['source_fingerprints']), 3)
+            for name in lock['source_fingerprints']:
+                p = root / name
+                p.write_text('modified input')
+                with self.assertRaises(ValueError):
+                    package.verify_sources(lock, root)
+                p.write_text('approved build input')
+
     def test_symlink_in_dependency_archive_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             archive = Path(temp) / 'input.zip'
