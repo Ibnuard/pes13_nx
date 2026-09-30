@@ -34,6 +34,24 @@ sufficient evidence for that allegation. Both upstream contributions and
 our porting work deserve accurate attribution. If a source or attribution
 has been overlooked, identify it so it can be reviewed and corrected.
 
+## Why LSFG was removed
+
+Ibnuard's stated reason for removing the optional LSFG frame-generation
+integration was the impact of allegations that he had stolen code for the
+FEX port. He was concerned that keeping LSFG visible in the project would
+lead to further accusations of code theft and extend the dispute over the
+authorship of his Switch porting work. Removing that optional integration
+was his response to that concern.
+
+The earlier LSFG integration was documented as adapting Autorun and
+lsfg-vk work, with credit to those upstream contributors. That attribution
+remains in the repository history. The
+[removal checkpoint](https://github.com/Ibnuard/pes13_nx/commit/3d61a85844ce6e293d521abfbd0956b372ec4624)
+removed the launcher option, backend and associated build/package code.
+The FEX port's implementation and upstream dependencies remain documented
+separately below so that authorship questions can be assessed against
+specific source files and commits.
+
 ## Where each part comes from
 
 | Layer | Source and contribution |

@@ -17,15 +17,19 @@ game data and installation code are not supplied by this repository.
 
 ## Setup
 
-1. Install the complete FEXTendo runtime on your SD card, then apply matching
-   updates. An update-only ZIP requires the existing Wine/FEX runtime files.
+1. Download the `FEXTendo-<version>-sd.zip` from
+   [Releases](https://github.com/Ibnuard/pes13_nx/releases) and extract `switch/`
+   to your SD root. This complete package includes the NRO, NSP forwarder,
+   Wine/FEX/DXVK runtime, launcher assets, presets and default `settings.dat`.
+   The standalone NRO/NSP downloads are for existing installations.
 2. Copy your own game installation (`pes2013.exe`, accompanying game DLLs and
    `img/`) into `switch/pes13-fex/drive_c/PES13/`.
 3. On the Windows PC where PES is installed, run
    [tools/export-metadata.py](tools/export-metadata.py). Copy the resulting
    `local/config/pes13-install.reg` to `switch/pes13-fex/pes13-install.reg`.
-4. Launch the matching forwarder targeting
-   `sdmc:/switch/pes13-fex/pes13-fex.nro` (32-bit address space, no alias, 4 cores).
+4. Install and launch the included `FEXTendo-PES13.nsp`, targeting
+   `sdmc:/switch/pes13-fex/pes13-fex.nro` (32-bit address space, no alias, 4 cores,
+   svcDebug disabled). Its icon matches the NRO.
 
 Expected layout at the SD root (runtime folders shown below come from the
 complete package; keep their other supplied files):
@@ -54,6 +58,13 @@ Keep the package's runtime DLLs and configuration when adding game files.
 The launcher manages the canonical `drive_c/KONAMI/Pro Evolution Soccer
 2013/settings.dat` and its compatibility copies. Keep installation metadata
 private. Close the game before replacing runtime files.
+
+Game-data and save directories are preserved in the release ZIP even when
+empty. PRs targeting `main`/`master` produce a downloadable preview artifact;
+successful merges publish a versioned tag, release and generated changelog
+(for example, `PES13 FEXTendo V.0.3.7`, with a revision for automatic packages).
+See [release CI and runtime updates](docs/RELEASE-CI.md) for the approved
+production input, checks and instructions for updating the runtime binaries.
 
 ## Credits
 

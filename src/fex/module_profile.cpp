@@ -18,6 +18,7 @@ extern "C" void PES13FexApplyPerformanceProfile(void) {
     Set(CONFIG_MEMCPYSETTSOENABLED, fastest ? "0" : "1");
     Set(CONFIG_HALFBARRIERTSOENABLED, "1");
     Set(CONFIG_MULTIBLOCK, "1");
+    PES13FexLog("[FEX3-DECODE] v1 inline worklists=64; ordered-tree overflow; no persistent cache required");
     // The launcher can select a latency experiment through FEX's existing
     // environment config. Keep the previous cap for every other value.
     FEX_CONFIG_OPT(RequestedMaxInst, MAXINST);

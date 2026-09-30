@@ -21,3 +21,19 @@ source dan commit ada di `source/docs/FEX-PORT-PROVENANCE.md`.
 **FEX tetap FEX-Emu.** Pekerjaan port Switch dan integrasi FEXTendo adalah
 kontribusi **AndroSwitch Project / Ibnuard**. Fondasi Wine-NX dan backport
 Autorun yang digunakan dikreditkan secara terpisah dalam `THIRD_PARTY.md`.
+
+## Alasan penghapusan LSFG
+
+Menurut penjelasan Ibnuard, integrasi opsional LSFG untuk frame generation
+dihapus karena dampak tuduhan bahwa ia mencuri kode port FEX. Ia khawatir
+keberadaan LSFG yang masih terlihat dalam proyek akan memicu tuduhan
+pencurian kode tambahan dan memperpanjang perselisihan mengenai kepengarangan
+pekerjaan port Switch-nya. Penghapusan integrasi tersebut merupakan keputusan
+maintainer sebagai respons terhadap kekhawatiran itu.
+
+Integrasi LSFG sebelumnya sudah dicatat sebagai adaptasi pekerjaan Autorun
+dan lsfg-vk, dengan kredit kepada kontributor asalnya. Catatan atribusi itu
+tetap tersedia dalam riwayat Git. Pembaruan ini menghapus opsi launcher,
+backend, serta kode build dan packaging terkait LSFG. Penjelasan kepengarangan
+port FEX dan asal setiap komponennya tersedia dalam
+[dokumen provenance](FEX-PORT-PROVENANCE.md#why-lsfg-was-removed).
