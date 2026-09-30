@@ -72,7 +72,11 @@ def main():
     parser.add_argument("--dxvk-core3", action="store_true", help="Named dxvk-cs offload trial; requires short-trace baseline")
     parser.add_argument('--polling', action='store_true', help='Sharded polling counters and shared yield timing; runtime OFF control retained')
     parser.add_argument('--fast-api', action='store_true', help='Validated QPC/non-alertable delay gateway and bounded hotspot diagnostics')
+    parser.add_argument('--silent-production', action='store_true',
+                        help='No runtime/Wine/FEX/DXVK log output; use an isolated production build tree')
     args = parser.parse_args()
+    if args.silent_production and not args.fast_api:
+        parser.error('--silent-production requires --fast-api')
     if args.fast_api and not args.polling:
         parser.error('--fast-api requires --polling')
     if args.polling and not args.dxvk_core3:
@@ -128,12 +132,13 @@ def main():
     if not args.native_only and not all((tc / name).is_file() for name in
             ('aarch64-w64-mingw32-clang', 'i686-w64-mingw32-clang')):
         raise SystemExit(f'Missing LLVM-MinGW toolchain: {tc}')
-    work = root / 'fex-experiment' / ('wine3' if args.integration else 'wine2')
+    snapshot = 'wine3-production' if args.silent_production else 'wine3' if args.integration else 'wine2'
+    work = root / 'fex-experiment' / snapshot
     devkit = Path('/opt/devkitpro')
     env = dict(os.environ, DEVKITPRO=str(devkit), DEVKITA64=str(devkit / 'devkitA64'),
                PATH=f'{tc}:{devkit}/devkitA64/bin:{devkit}/tools/bin:' + os.environ['PATH'])
     wine_provenance(work / 'pe-build', toolchain, env)
-    work = prepare(root, project, 'wine3' if args.integration else 'wine2')
+    work = prepare(root, project, snapshot)
     evidence = project / ('local/fex3' if args.integration else 'local/fex2')
     if args.output_dir:
         evidence = args.output_dir.resolve()
@@ -146,7 +151,7 @@ def main():
                     jit_log_queue=args.jit_log_queue, yield_burst=args.yield_burst,
                     yield_adaptive=args.yield_adaptive, stable_balance=args.stable_balance, gap_audit=args.gap_audit, launcher=args.launcher,
                     memory_audit=args.memory_audit, memory_budget_filter=args.memory_budget_filter, short_trace=args.short_trace, dxvk_core3=args.dxvk_core3,
-                    polling=args.polling, fast_api=args.fast_api)
+                    polling=args.polling, fast_api=args.fast_api, silent_production=args.silent_production)
     (evidence / 'wine-patches.json').write_text(json.dumps(patches, indent=2) + '\n')
 
     devkit = Path('/opt/devkitpro')
@@ -229,6 +234,7 @@ def main():
               'dxvk_core3': args.dxvk_core3,
               'polling': args.polling,
               'fast_api': args.fast_api,
+              'silent_production': args.silent_production,
               'diagnostic': args.diagnostic,
               'resume_gate': args.resume_gate,
               'samecore_yield': args.samecore_yield,
@@ -343,6 +349,9 @@ def main():
     if args.fast_api:
         report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
             for name in ('tools/fex_fast_api_patches.py', 'src/runtime/fex_fast_api.h', 'src/runtime/fex_hot_profile.h')})
+    if args.silent_production:
+        report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
+            for name in ('tools/fextendo_silent_patches.py', 'src/runtime/fextendo_silent_io.h', 'tools/fex2_prepare.py')})
     if not args.native_only:
         pe = work / 'pe-build'
         pe.mkdir(exist_ok=True)

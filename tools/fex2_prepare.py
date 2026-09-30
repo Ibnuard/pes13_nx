@@ -7,7 +7,7 @@ import os
 
 
 def prepare(root, project, version='wine2'):
-    if version not in ('wine2', 'wine3'):
+    if version not in ('wine2', 'wine3', 'wine3-production'):
         raise ValueError('Unsupported FEX Wine snapshot')
     work = root / 'fex-experiment' / version
     work.mkdir(parents=True, exist_ok=True)

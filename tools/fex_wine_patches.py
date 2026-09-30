@@ -7,7 +7,10 @@ import json
 def apply(work, project, integration=False, samecore_yield=False, runtime_fixes=False, diagnostic=False,
           resume_gate=False, stability=False, hang_audit=False, warm_audit=False, jit_latency=False, sleep_deadline=False,
           worker_cores=False, jit_log_queue=False, yield_burst=False, yield_adaptive=False, stable_balance=False, gap_audit=False, launcher=False,
-          memory_audit=False, memory_budget_filter=False, short_trace=False, dxvk_core3=False, polling=False, fast_api=False):
+          memory_audit=False, memory_budget_filter=False, short_trace=False, dxvk_core3=False, polling=False, fast_api=False,
+          silent_production=False):
+    if silent_production and not fast_api:
+        raise ValueError('Silent production requires the complete fast-api baseline')
     if fast_api and not polling:
         raise ValueError("Fast API requires polling baseline")
     if polling and not dxvk_core3:
@@ -591,6 +594,9 @@ static int set_code_memory_perm( void *addr, void *source, size_t size, int prot
                 if fast_api:
                     from fex_fast_api_patches import apply as apply_fast_api
                     apply_fast_api(read, replace, project)
+                if silent_production:
+                    from fextendo_silent_patches import apply as apply_silent
+                    apply_silent(read, replace, project)
                 for key in list(patched):
                     patched[key] = patched[key].replace('switch/pes13-fex2', 'switch/pes13-fex')
 
