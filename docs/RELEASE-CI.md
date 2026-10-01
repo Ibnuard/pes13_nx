@@ -1,19 +1,22 @@
 # Complete launcher packages and GitHub releases
 
-`.github/workflows/release.yml` runs for pull requests targeting `main` or
-`master`, pushes to either branch, and manual preview runs. PRs upload a
-downloadable Actions artifact. A successful push to `main`/`master` also creates
-a tag and publishes a GitHub Release with generated changelog and the same
-validated assets. Merging a PR causes that push automatically.
+`.github/workflows/release.yml` packages and publishes only after a pull request
+is merged into `main`. It listens to `pull_request_target` with `types: [closed]`
+and a `merged == true` job guard. Opening/updating a PR and pushing directly to
+`main` do not run this workflow. Closing an unmerged PR skips both jobs.
+There is no manual preview trigger.
+
+Checkout, package metadata and the release tag all use the event's
+`pull_request.merge_commit_sha`, so another merge cannot move the source of an
+in-progress release. The package and publish jobs belong to one workflow run.
 
 User releases use a title such as **PES13 FEXTendo V.0.3.7** and a tag such as
 `v0.3.7`. Automatic package runs retain that runtime version and add a revision:
 tag `v0.3.7-r42`, title **PES13 FEXTendo V.0.3.7 (r42)**. The revision is the
 workflow run number, so separate merges cannot collide and reruns keep their
 original tag. The displayed version comes from `release/runtime-lock.json`.
-Preview runs add `-preview` and never publish releases. Existing published
-assets are verified rather than overwritten. User releases are marked Latest;
-the dependency input remains a separate prerelease for CI.
+Existing published assets are verified rather than overwritten. User releases
+are marked Latest; the dependency input remains a separate prerelease for CI.
 
 ## Downloads
 
@@ -37,12 +40,14 @@ game executables and data are excluded.
 ## Approved production input
 
 This is **package/validation CI**, not an unattended Switch cross-compilation
-pipeline. It deliberately distributes the approved production-v1 NRO with the
-launching fix and the pre-DFE DLL. It does not rebuild a later experimental
-runtime or use an old NRO while claiming to have compiled new source.
+pipeline. It distributes the approved keyboard-v4 NRO built on production v1
+with the launching fix and pre-DFE DLL. This includes two controllers, horizontal
+Joy-Con support and live keyboard editing with English labels and controller
+sprites. It uses the existing `drive_c` layout; the runtime image experiment is
+not part of this release.
 
 `release/runtime-lock.json` pins an immutable input archive on the
-`runtime-production-v1` dependency release, its SHA256, individual binary hashes
+`runtime-keyboard-v4` dependency release, its SHA256, individual binary hashes
 and runtime source fingerprints. The input includes required runtime DLLs,
 assets, forwarder, licenses, modified sources and existing build/test evidence.
 The matching NSP already targets the stable NRO path with the same icon,
@@ -50,11 +55,30 @@ The matching NSP already targets the stable NRO path with the same icon,
 identity and NCAs against the verified build receipt; it needs no console keys.
 
 Changing runtime code, build patches or the icon without approving a new input
-fails CI. For a new runtime (including future two-gamepad support), build/test
-the NRO and matching DLLs first, create a new dependency tag/archive, and update
+fails CI. For a new runtime, build/test the NRO and matching DLLs first, create
+a new dependency tag/archive, and update
 the lock in the same PR. Never just refresh fingerprints around stale binaries.
 Configuration, presets and release documentation are assembled from the PR.
-The initial input can be reproduced with:
+The current input replaces only the NRO in the original production dependency
+archive. `tools/prepare_keyboard_runtime.py` checks the exact, previously tested
+keyboard-v4 ZIP, build source hashes, ten test receipts, and unchanged dependency
+hashes before generating the new archive and lock. It includes the keyboard
+source delta and evidence alongside the baseline sources. To reproduce it:
+
+```sh
+git show 1e53a0c:release/runtime-lock.json > local/release/runtime-production-v1.lock.json
+python3 tools/prepare_keyboard_runtime.py \
+  --base local/release/fextendo-runtime-production-v1.zip \
+  --base-lock local/release/runtime-production-v1.lock.json \
+  --keyboard dist/pes13-fextendo-keyboard-preview-v4.zip \
+  --output local/release/fextendo-runtime-keyboard-v4.zip
+```
+
+Upload the verified archive to the immutable `runtime-keyboard-v4` dependency
+prerelease before merging the lock change. CI reads the asset name from the lock;
+it does not assume the previous production-v1 filename.
+
+The original production-v1 dependency can be reproduced with:
 
 ```sh
 python3 tools/prepare_release_runtime.py \
@@ -74,20 +98,25 @@ For local package verification (Python 3.11+):
 python3 -m pip install -r requirements.txt
 python3 -m unittest discover -s tests -p 'test_release_*.py' -v
 python3 tools/release_package.py \
-  --runtime local/release/fextendo-runtime-production-v1.zip \
+  --runtime local/release/fextendo-runtime-keyboard-v4.zip \
   --output dist/release-check --version local-preview \
   --commit "$(git rev-parse HEAD)"
 ```
 
 ## Permissions and validation
 
-The package job has `contents: read`. Only a successful default-branch push
-enables the publish job with `contents: write`. PR code never receives that
-write token, and `pull_request_target` is not used. Actions are pinned to full
-commit hashes and checkout does not retain credentials. The same repository's
-dependency release is fetched with the standard `GITHUB_TOKEN`; no custom
-PAT, signing key or self-hosted runner is needed. Private-repository fork PRs
-remain subject to GitHub's normal Actions approval/access policies.
+The package job has `contents: read`. Only a merged PR followed by successful
+package validation enables the publish job with `contents: write`. Using
+`pull_request_target` allows the post-merge release to work for fork contributions
+as well. Both jobs are guarded by `merged == true` and check out the accepted
+merge commit, never an unmerged PR head. The version/publish helpers also reject
+open, unmerged, wrong-repository and non-main events.
+
+Actions are pinned to full commit hashes and checkout does not retain
+credentials. The same repository's dependency release is fetched with the
+standard `GITHUB_TOKEN`; no custom PAT, signing key or self-hosted runner is
+needed. The event pattern follows GitHub's
+[merged pull request workflow documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#running-your-pull_request_target-workflow-when-a-pull-request-merges).
 
 Checks cover archive inventory/hashes, source drift, settings checksum, NRO
 metadata/icon, NSP content hashes/capability receipt, static Wine/FEX imports,

@@ -60,11 +60,15 @@ The launcher manages the canonical `drive_c/KONAMI/Pro Evolution Soccer
 private. Close the game before replacing runtime files.
 
 Game-data and save directories are preserved in the release ZIP even when
-empty. PRs targeting `main`/`master` produce a downloadable preview artifact;
-successful merges publish a versioned tag, release and generated changelog
+empty. Only PRs merged into `main` run the package/release workflow. Each merge
+publishes a versioned tag, release and generated changelog
 (for example, `PES13 FEXTendo V.0.3.7`, with a revision for automatic packages).
 See [release CI and runtime updates](docs/RELEASE-CI.md) for the approved
 production input, checks and instructions for updating the runtime binaries.
+
+The release runtime includes two controllers, horizontal Joy-Con mapping and
+live keyboard editing with English labels and controller sprites. It retains
+the production-v1 startup fix, silent runtime and pre-DFE FEX DLL.
 
 ## Credits
 

@@ -26,7 +26,25 @@ def repository():
     return repo
 
 
+def merged_commit():
+    """Use the immutable merged revision, never a later main HEAD or PR head."""
+    if os.environ.get('GITHUB_EVENT_NAME') != 'pull_request_target':
+        raise ValueError('Release requires a merged pull request to main')
+    event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+    pr = event.get('pull_request') or {}
+    base = pr.get('base') or {}
+    if (event.get('action') != 'closed' or pr.get('merged') is not True
+            or base.get('ref') != 'main'
+            or (base.get('repo') or {}).get('full_name') != repository()):
+        raise ValueError('Release requires a merged pull request to main')
+    commit = pr.get('merge_commit_sha', '')
+    if not isinstance(commit, str) or not re.fullmatch('[0-9a-f]{40}', commit):
+        raise ValueError('Missing or invalid merge commit')
+    return commit
+
+
 def version():
+    commit = merged_commit()
     # Keep the runtime version visible; the revision distinguishes package runs.
     runtime = json.loads((ROOT / 'release/runtime-lock.json').read_text())['runtime_version']
     if not re.fullmatch(r'\d+\.\d+\.\d+', runtime):
@@ -35,10 +53,8 @@ def version():
     if not run.isdecimal():
         raise ValueError('Invalid workflow run number')
     value = 'v' + runtime + '-r' + run
-    if os.environ['GITHUB_EVENT_NAME'] != 'push' or os.environ['GITHUB_REF'] not in ('refs/heads/main', 'refs/heads/master'):
-        value += '-preview'
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-        output.write('version=' + value + '\n')
+        output.write('version=' + value + '\ncommit=' + commit + '\n')
     print(value)
 
 
@@ -52,11 +68,18 @@ def release_title(tag):
 
 def fetch(output):
     lock = json.loads((ROOT / 'release/runtime-lock.json').read_text())
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*\.zip', lock['asset']):
+        raise ValueError('Invalid runtime asset filename')
+    if '\n' in str(output) or '\r' in str(output):
+        raise ValueError('Invalid runtime output path')
     output.mkdir(parents=True, exist_ok=True)
     subprocess.run(['gh', 'release', 'download', lock['tag'], '--repo', repository(),
                     '--pattern', lock['asset'], '--dir', str(output)], check=True)
     if hashlib.sha256((output / lock['asset']).read_bytes()).hexdigest() != lock['sha256']:
         raise ValueError('Downloaded runtime differs from committed SHA256')
+    if os.environ.get('GITHUB_OUTPUT'):
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as result:
+            result.write('runtime_path=' + str(output / lock['asset']) + '\n')
 
 
 def validate_assets(folder, tag, commit):
@@ -115,7 +138,8 @@ def publish(folder, tag, commit):
                 'Copy your own PES 2013 PC v1.0 files into `switch/pes13-fex/drive_c/PES13/`. '
                 'Export your own installation metadata as described in README.txt. '
                 'Game files and private installation metadata are not included.\n\n'
-                'Runtime: production v1 + launching fix, pre-DFE DLL; NRO display version '
+                'Runtime: production v1 + launching fix, pre-DFE DLL, two controllers '
+                'and live keyboard v4; NRO display version '
                 + manifest['runtime_version'] + '. Package validation is not a Switch hardware test. '
                 'The standalone NRO/NSP assets are for existing installations.\n\n' + notes['body'])
         release = gh('api', prefix + '/releases', '--method', 'POST', data={
@@ -145,4 +169,6 @@ if __name__ == '__main__':
     elif args.command == 'fetch':
         fetch(args.output)
     else:
+        if merged_commit() != args.commit:
+            raise ValueError('Publish commit differs from the merged pull request')
         publish(args.input, args.tag, args.commit)
