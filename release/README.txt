@@ -14,7 +14,8 @@ FEXTendo / PES13-NX - complete SD package
    It uses the same icon as the NRO, 32-bit no-alias address space, 4 cores
    and svcDebug disabled.
 
-Included: production v1 NRO + startup fix, pre-DFE FEX DLL, Wine runtime,
+Included: production v1 NRO + startup fix, two controllers and keyboard v4,
+pre-DFE FEX DLL, Wine runtime,
 DXVK renderers, launcher artwork/audio/fonts, all four graphics presets,
 and the default Medium 720p settings.dat with compatibility copies.
 Game and save directories are explicitly present even when empty.
@@ -25,7 +26,10 @@ The standalone NRO and NSP downloads are for updating an existing complete
 installation. New installations need the -sd.zip, not just those binaries.
 See manifest.json and SHA256SUMS for exact versions and hashes. Releases use
 PES13 FEXTendo V.0.3.7; automatic packages add a revision such as r42.
-CI checks package integrity and imports; launching still requires a Switch
-hardware test. Two-player controller support is not implemented yet.
+CI checks package integrity and imports; it does not run Switch hardware tests.
+Two-player support includes full controllers and horizontal single Joy-Con.
+For text fields, hold L + R and click L3 once; with a horizontal Joy-Con,
+hold SL + SR and click its stick. The live editor uses English labels and
+controller sprites. See source/keyboard-v4/docs/FEXTENDO-NATIVE-KEYBOARD.md.
 
 Sources, build evidence and third-party notices are included alongside switch/.

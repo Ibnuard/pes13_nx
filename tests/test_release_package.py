@@ -1,5 +1,6 @@
 """Regressions for distribution boundaries and empty-folder preservation."""
 from pathlib import Path
+import json
 import os
 import stat
 import subprocess
@@ -110,24 +111,78 @@ class PackageTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
                 ci.validate_assets(root, 'v0.3.7-r1', 'a' * 40)
 
-    def test_pr_and_manual_runs_always_get_preview_versions(self):
+    def test_merged_pr_uses_its_merge_commit_and_stable_release_version(self):
         with tempfile.TemporaryDirectory() as temp:
-            for event, ref, preview in [('pull_request', 'refs/pull/3/merge', True),
-                                        ('workflow_dispatch', 'refs/heads/main', True),
-                                        ('push', 'refs/heads/main', False),
-                                        ('push', 'refs/heads/master', False)]:
-                out = Path(temp) / (event + ref.replace('/', '-'))
-                env = {'GITHUB_OUTPUT': str(out), 'GITHUB_EVENT_NAME': event,
-                       'GITHUB_REF': ref, 'GITHUB_RUN_NUMBER': '42'}
-                with patch.dict(os.environ, env):
-                    ci.version()
-                    first = out.read_text()
-                    ci.version()
-                    self.assertEqual(out.read_text(), first + first)
-                    self.assertEqual(first.strip().endswith('-preview'), preview)
-                    self.assertTrue(first.startswith('version=v0.3.7-r42'))
-                    self.assertEqual(ci.release_title('v0.3.7'), 'PES13 FEXTendo V.0.3.7')
-                    self.assertEqual(ci.release_title('v0.3.7-r42'), 'PES13 FEXTendo V.0.3.7 (r42)')
+            out = Path(temp) / 'output'
+            event = Path(temp) / 'event.json'
+            event.write_text(json.dumps({'action': 'closed', 'pull_request': {
+                'merged': True, 'merge_commit_sha': 'a' * 40, 'head': {'sha': 'c' * 40},
+                'base': {'ref': 'main', 'repo': {'full_name': 'owner/repo'}}}}))
+            env = {'GITHUB_OUTPUT': str(out), 'GITHUB_EVENT_PATH': str(event),
+                   'GITHUB_EVENT_NAME': 'pull_request_target', 'GITHUB_REPOSITORY': 'owner/repo',
+                   'GITHUB_SHA': 'b' * 40, 'GITHUB_RUN_NUMBER': '42'}
+            with patch.dict(os.environ, env):
+                ci.version()
+                first = out.read_text()
+                self.assertEqual(first, 'version=v0.3.7-r42\ncommit=' + 'a' * 40 + '\n')
+                ci.version()
+                self.assertEqual(out.read_text(), first + first)
+                self.assertEqual(ci.release_title('v0.3.7'), 'PES13 FEXTendo V.0.3.7')
+                self.assertEqual(ci.release_title('v0.3.7-r42'), 'PES13 FEXTendo V.0.3.7 (r42)')
+
+    def test_releases_reject_open_unmerged_wrong_branch_and_push_events(self):
+        with tempfile.TemporaryDirectory() as temp:
+            event = Path(temp) / 'event.json'
+            env = {'GITHUB_EVENT_PATH': str(event), 'GITHUB_REPOSITORY': 'owner/repo'}
+            cases = [('pull_request_target', action, True, 'main', 'owner/repo', 'a' * 40)
+                     for action in ('opened', 'reopened', 'synchronize')]
+            cases += [(name, 'closed', True, 'main', 'owner/repo', 'a' * 40)
+                      for name in ('push', 'pull_request', 'workflow_dispatch')]
+            cases += [('pull_request_target', 'closed', merged, branch, repo, sha)
+                      for merged, branch, repo, sha in (
+                          (False, 'main', 'owner/repo', 'a' * 40),
+                          ('true', 'main', 'owner/repo', 'a' * 40),
+                          (True, 'master', 'owner/repo', 'a' * 40),
+                          (True, 'main', 'another/repo', 'a' * 40),
+                          (True, 'main', 'owner/repo', None),
+                          (True, 'main', 'owner/repo', 'main'))]
+            for name, action, merged, branch, repo, sha in cases:
+                event.write_text(json.dumps({'action': action, 'pull_request': {
+                    'merged': merged, 'merge_commit_sha': sha,
+                    'base': {'ref': branch, 'repo': {'full_name': repo}}}}))
+                with self.subTest(event=name, action=action, merged=merged, branch=branch, sha=sha), \
+                        patch.dict(os.environ, {**env, 'GITHUB_EVENT_NAME': name}), \
+                        self.assertRaises(ValueError):
+                    ci.merged_commit()
+
+    def test_fetch_returns_the_locked_asset_path_and_rejects_a_bad_download(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'release').mkdir()
+            out = root / 'job-output'
+            destination = root / 'download'
+            asset = 'fextendo-runtime-keyboard-v4.zip'
+            lock = {'tag': 'runtime-keyboard-v4', 'asset': asset, 'sha256': package.sha(b'approved')}
+            lock_path = root / 'release/runtime-lock.json'
+            lock_path.write_text(json.dumps(lock))
+            def download(*args, **kwargs):
+                self.assertIn(asset, args[0])
+                (destination / asset).write_bytes(b'approved')
+            with patch.object(ci, 'ROOT', root), patch.object(ci, 'repository', return_value='owner/repo'), \
+                    patch.dict(os.environ, {'GITHUB_OUTPUT': str(out)}), \
+                    patch.object(ci.subprocess, 'run', side_effect=download):
+                ci.fetch(destination)
+                self.assertEqual(out.read_text(), 'runtime_path=' + str(destination / asset) + '\n')
+                before = out.read_text()
+                lock['sha256'] = '0' * 64
+                lock_path.write_text(json.dumps(lock))
+                with self.assertRaisesRegex(ValueError, 'SHA256'):
+                    ci.fetch(destination)
+                self.assertEqual(out.read_text(), before)
+                lock['asset'] = '../outside.zip'
+                lock_path.write_text(json.dumps(lock))
+                with self.assertRaisesRegex(ValueError, 'filename'):
+                    ci.fetch(destination)
 
     def test_existing_tag_for_another_commit_cannot_be_published(self):
         ref = [{'ref': 'refs/tags/v0.3.7-r1', 'object': {'sha': 'b' * 40, 'type': 'commit'}}]
