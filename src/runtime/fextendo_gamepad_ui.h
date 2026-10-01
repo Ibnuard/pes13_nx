@@ -1,4 +1,7 @@
 /* LGPL-2.1-or-later. Uses the same normalized samples as XInput. */
+#ifdef FX_KEYBOARD_OVERLAY
+#include "fextendo_osk_sprites.h"
+#endif
 static const char *fx_pad_name(int kind) {
     switch(kind){
     case FX_PAD_LEFT:return "Joy-Con (L) / horizontal";
@@ -51,10 +54,19 @@ static void fx_gamepad_page(struct fx_canvas *c,const struct fx_view *v) {
 }
 static void fx_gamepad_pause(struct fx_canvas *c,const struct fx_pad_sample pads[2],unsigned players,int ready,int draining,int applet_ok) {
     fx_rect(c,0,0,FX_W,FX_H,FX_COLOR(5,16,29),255);
-    fx_text(c,64,42,"Game dijeda",2,FX_WHITE);
-    fx_text(c,66,105,"Controller terputus. Hubungkan kembali untuk melanjutkan.",0,FX_MUTED);
+    fx_text(c,64,42,"Game paused",2,FX_WHITE);
+    fx_text(c,66,105,"Controller disconnected. Reconnect it to continue.",0,FX_MUTED);
     fx_pad_card(c,64,0,&pads[0],1,0);fx_pad_card(c,668,1,&pads[1],players==2,0);
-    fx_text(c,66,560,draining?"Lepaskan semua tombol dan analog.":ready?"A   Lanjutkan":"Menunggu controller sesi tersambung kembali...",1,FX_WHITE);
-    fx_text(c,66,616,"X   Hubungkan / ubah controller",0,FX_BLUE);
-    if(!applet_ok)fx_text(c,66,668,"Applet dibatalkan atau gagal. Tekan X untuk mencoba lagi.",0,FX_MUTED);
+#ifdef FX_KEYBOARD_OVERLAY
+    if(!draining&&ready){
+        fx_image(c,fx_osk_sprites[FX_OSK_SPRITE_A],40,40,66,555,36,36,0,255);
+        fx_text(c,110,560,"Continue",1,FX_WHITE);
+    }else fx_text(c,66,560,draining?"Release all buttons and sticks.":"Waiting for the session controllers to reconnect...",1,FX_WHITE);
+    fx_image(c,fx_osk_sprites[FX_OSK_SPRITE_X],40,40,66,611,36,36,0,255);
+    fx_text(c,110,616,"Change Controller",0,FX_BLUE);
+#else
+    fx_text(c,66,560,draining?"Release all buttons and sticks.":ready?"A   Continue":"Waiting for the session controllers to reconnect...",1,FX_WHITE);
+    fx_text(c,66,616,"X   Change Controller",0,FX_BLUE);
+#endif
+    if(!applet_ok)fx_text(c,66,668,"Controller setup was canceled or failed. Press X to try again.",0,FX_MUTED);
 }

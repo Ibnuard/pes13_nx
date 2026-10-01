@@ -28,11 +28,25 @@ def main():
     parser.add_argument('--output', type=Path, default=ROOT/'local/fex3/gamepads-v2')
     parser.add_argument('--build-root', type=Path, default=Path.home()/'.cache/pes13-nx-macos')
     parser.add_argument('--jobs', type=int, default=4)
+    parser.add_argument('--keyboard', action='store_true', help='Include the experimental native text keyboard')
+    parser.add_argument('--keyboard-overlay', action='store_true', help='Include live editing overlay for custom fields (implies --keyboard)')
     args = parser.parse_args()
+    if args.keyboard_overlay:args.keyboard=True
     base, work, cache = args.base.resolve(), args.output.resolve(), args.build_root.resolve()
     feature_paths = [ROOT/'tools/build-fextendo-gamepads.py',ROOT/'tools/fextendo_gamepad_patches.py',
                      *(ROOT/'src/runtime'/n for n in ('fextendo_gamepad.h','fextendo_gamepad_ui.h',
                         'fextendo_gamepad_switch.h','fextendo_ui.h','fextendo_launcher.h','fextendo_presets.h'))]
+    keyboard_headers = ('fextendo_keyboard.h','fextendo_keyboard_switch.h','fextendo_keyboard_wine.h')
+    if args.keyboard_overlay:
+        keyboard_headers += ('fextendo_osk.h','fextendo_osk_ui.h','fextendo_osk_switch.h','fextendo_osk_display.h','fextendo_osk_sprites.h')
+        feature_paths += [ROOT/'tools/build-fextendo-osk-sprites.py',
+                          *(ROOT/f'assets/Solid Duo/Dark theme/{n}_Button.svg' for n in
+                            ('A','B','X','Y','L','R','SL','SR','Plus','Minus'))]
+    if args.keyboard:
+        if work == ROOT/'local/fex3/gamepads-v2':
+            parser.error('--keyboard requires a separate --output to preserve the tested controller build')
+        feature_paths += [ROOT/'tools/fextendo_keyboard_patches.py',
+                          *(ROOT/'src/runtime'/n for n in keyboard_headers)]
     feature_hashes = {str(p.relative_to(ROOT)):sha(p.read_bytes()) for p in feature_paths}
     old = json.loads((base/'runtime/runtime-build.json').read_text())
     assert old['nro_sha256'] == BASE_NRO
@@ -61,6 +75,12 @@ def main():
     data = (Path(old['native_source']).parent/xinput).read_bytes()
     assert sha(data) == original_files[xinput]
     (source/xinput).write_bytes(data)
+    if args.keyboard:
+        for name in ('dlls/win32u/winnx_drv.c','dlls/win32u/driver.c','dlls/ntdll/unix/horizon_keyboard.h'):
+            if name not in manifest:
+                data = (Path(old['native_source']).parent/name).read_bytes()
+                assert sha(data) == original_files[name]
+                (source/name).write_bytes(data)
     for name, digest in original_files.items():
         if name not in manifest:
             assert sha((source/name).read_bytes()) == digest, name
@@ -93,7 +113,15 @@ def main():
     for name in ('fextendo_gamepad.h','fextendo_gamepad_ui.h'):
         shutil.copy2(ROOT/'src/runtime'/name, feature/'src/runtime'/name)
     apply(read, replace, feature)
-    assert set(changed) == {runtime,'wine-nx-probe/source/xinput_unix.c','dlls/win32u/vulkan.c','wine-nx-probe/CMakeLists.txt'}
+    expected = {runtime,'wine-nx-probe/source/xinput_unix.c','dlls/win32u/vulkan.c','wine-nx-probe/CMakeLists.txt'}
+    if args.keyboard:
+        from fextendo_keyboard_patches import apply as apply_keyboard
+        for name in keyboard_headers:
+            shutil.copy2(ROOT/'src/runtime'/name, feature/'src/runtime'/name)
+        apply_keyboard(read, replace, feature, overlay=args.keyboard_overlay)
+        expected.update(('dlls/win32u/winnx_drv.c','dlls/win32u/driver.c',
+                         'dlls/ntdll/unix/horizon.c','dlls/ntdll/unix/horizon_keyboard.h'))
+    assert set(changed) == expected
     diff = []
     for name, data in changed.items():
         (source/name).write_text(data)
@@ -129,6 +157,8 @@ def main():
     assert module.native_dependency_receipt(mesa,sdk) == old['native_dependencies']
     assert feature_hashes == {str(p.relative_to(ROOT)):sha(p.read_bytes()) for p in feature_paths}, 'Feature sources changed during build'
     report={'passed':True,'hardware_tested':False,'baseline_nro_sha256':BASE_NRO,
+            'native_keyboard_preview':args.keyboard,
+            'live_keyboard_overlay':args.keyboard_overlay,
             'nro_sha256':sha(nro.read_bytes()),'native_elf_sha256':sha((build/'wine-nx-runtime.elf').read_bytes()),
             'adapters':old['adapter_sources'],'native_dependencies':old['native_dependencies'],
             'generated_delta':sorted(changed),'generated_sources':{k:sha(v.encode()) for k,v in changed.items()},

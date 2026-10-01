@@ -123,8 +123,8 @@ fail:fx_pause_close(p);return 0;
 }
 static void fx_pause_display_failed(void) {
     ErrorApplicationConfig error;
-    if(R_SUCCEEDED(errorApplicationCreate(&error,"Layar pause FEXTendo tidak tersedia.",
-        "Game dihentikan agar tidak berjalan tanpa controller. Tutup dan jalankan kembali FEXTendo.")))errorApplicationShow(&error);
+    if(R_SUCCEEDED(errorApplicationCreate(&error,"The FEXTendo pause screen is unavailable.",
+        "The game has stopped because a controller is unavailable. Close and restart FEXTendo.")))errorApplicationShow(&error);
     exit(1);
 }
 static void *fx_pads_monitor(void *unused) {
