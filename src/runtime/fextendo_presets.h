@@ -142,6 +142,7 @@ static int fx_apply_preset(const char *root,int selected) {
         if(i<3){
             memcpy(data[i],canonical,852);
             data[i][14]|=1; /* VSync; preserve other controller/display flags. */
+            data[i][15]|=2; /* Global PES XInput flag 0x0200, for both native slots. */
             memcpy(data[i]+16,templ+16,16); /* resolution, 16:9, quality */
             uint16_t crc=fx_crc(data[i]);data[i][12]=crc;data[i][13]=crc>>8;sizes[i]=852;
         } else if(i==3){

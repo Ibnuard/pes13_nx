@@ -61,7 +61,11 @@ static int fx_handoff(void) {
         __atomic_store_n(&fx_ui_stop,1,__ATOMIC_RELEASE);
         pthread_join(fx_ui_thread,NULL);fx_ui_created=0;
         log_line("[FEXTENDO] launcher stopped and framebuffer released before 3D handoff");
-        fx_timestamp_start();
+        if(!fx_pads_begin_game()){
+            pthread_mutex_lock(&fx_ui_lock);fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=1;
+            pthread_mutex_unlock(&fx_ui_lock);
+            fx_native_error("Controller recovery could not start. Close and relaunch.");failed=1;
+        }else fx_timestamp_start();
     }
     pthread_mutex_unlock(&fx_handoff_lock);return !failed;
 }
@@ -72,7 +76,7 @@ static void fx_stage(const char *text) {
     pthread_mutex_unlock(&fx_ui_lock);
 }
 static void *fx_ui_main(void *arg) {
-    struct fx_art art;Framebuffer fb;PadState pad;Result rc;int pending=0,last_dir=0,psm_ready=0,splash_done=0;u64 repeat=0,started=0,last_frame=0,battery_due=0,ui_origin=0;
+    struct fx_art art;Framebuffer fb;Result rc;uint64_t previous_buttons=0;int input_drain=0;int pending=0,last_dir=0,psm_ready=0,splash_done=0;u64 repeat=0,started=0,last_frame=0,battery_due=0,ui_origin=0;
     u64 render_sum=0,render_max=0,render_frames=0;
     (void)arg;
     if(!fx_art_load(&art,RUNTIME_DIR)){
@@ -83,7 +87,7 @@ static void *fx_ui_main(void *arg) {
     if(R_FAILED(rc))goto failed_fb;
     rc=framebufferMakeLinear(&fb);
     if(R_FAILED(rc)){framebufferClose(&fb);goto failed_fb;}
-    padConfigureInput(1,HidNpadStyleSet_NpadStandard);padInitializeDefault(&pad);
+    fx_pads_init();fx_ui_view.players=fx_pads_players();
     __atomic_store_n(&fx_ui_owned,1,__ATOMIC_RELEASE);
     if(!fx_renderer_recover(RUNTIME_DIR)||!fx_recover(RUNTIME_DIR)){
         fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=1;
@@ -103,7 +107,13 @@ static void *fx_ui_main(void *arg) {
             __atomic_store_n(&fx_boot_started,0,__ATOMIC_RELEASE);
             __atomic_store_n(&fx_ui_command,-1,__ATOMIC_RELEASE);break;
         }
-        padUpdate(&pad);down=padGetButtonsDown(&pad);held=padGetButtons(&pad);
+        fx_pads_snapshot(fx_ui_view.pads);fx_ui_view.players=fx_pads_players();
+        held=fx_pad_navigation(&fx_ui_view.pads[0])|fx_pad_navigation(&fx_ui_view.pads[1]);
+        down=held&~previous_buttons;previous_buttons=held;
+        if(input_drain){
+            if(fx_pad_neutral(&fx_ui_view.pads[0])&&fx_pad_neutral(&fx_ui_view.pads[1]))input_drain=0;
+            down=held=0;
+        }
         if(!splash_done&&fx_ui_view.screen==FX_HOME){
             u64 elapsed_ms=armTicksToNs(frame_start-ui_origin)/1000000;
             if(elapsed_ms>=FX_SPLASH_MS)splash_done=1;
@@ -134,15 +144,25 @@ static void *fx_ui_main(void *arg) {
             }
         }
         if(fx_ui_view.screen==FX_HOME){
-            if(dir)fx_ui_view.tile=(fx_ui_view.tile+dir+3)%3;
+            if(dir)fx_ui_view.tile=(fx_ui_view.tile+dir+4)%4;
             if(down&HidNpadButton_B)fx_ui_view.tile=0;
-            if(confirm&&fx_ui_view.tile==2){fx_ui_view.screen=FX_CREDITS;fx_ui_view.credit_page=0;}
+            if(confirm&&fx_ui_view.tile==3){fx_ui_view.screen=FX_CREDITS;fx_ui_view.credit_page=0;}
+            else if(confirm&&fx_ui_view.tile==2){fx_ui_view.screen=FX_GAMEPAD;fx_ui_view.row=0;fx_ui_view.message=NULL;fx_ui_view.pad_test=0;}
             else if(confirm&&fx_ui_view.tile==1){fx_ui_view.screen=FX_SETTINGS;fx_ui_view.row=fx_ui_view.selected;fx_ui_view.settings_scroll=fx_settings_scroll_target(fx_ui_view.row);fx_ui_view.saved=0;}
+            else if(confirm&&!fx_pads_ready()){
+                fx_ui_view.screen=FX_GAMEPAD;fx_ui_view.row=0;fx_ui_view.pad_test=0;
+                fx_ui_view.message="Connect a Player 1 controller before Play.";
+            }
             else if(confirm){
                 FILE *game=fopen(DEFAULT_TARGET,"rb");
                 if(!game){fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;fx_ui_view.message="PES13 was not found. Check the game folder.";}
                 else{
                     fclose(game);
+                    if(!fx_pads_capture_session()){
+                        fx_ui_view.screen=FX_GAMEPAD;fx_ui_view.row=0;fx_ui_view.pad_test=0;
+                        fx_ui_view.message="Controller disconnected. Select Change Controller.";
+                        pthread_mutex_unlock(&fx_ui_lock);continue;
+                    }
                     fx_timestamp_arm(fx_ui_view.timestamp,frame_start);
                     fx_ui_view.screen=FX_LOADING;fx_ui_view.message="Preparing your game...";pending=1;started=frame_start;
                 }
@@ -171,6 +191,19 @@ static void *fx_ui_main(void *arg) {
                 else if(fx_apply_preset(RUNTIME_DIR,fx_ui_view.row)){fx_ui_view.selected=fx_ui_view.row;fx_ui_view.saved=1;}
                 else{fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;fx_ui_view.message="Could not save the preset. Check the SD card.";}
             }
+        }else if(fx_ui_view.screen==FX_GAMEPAD){
+            if(fx_ui_view.pad_test){
+                if(down&(HidNpadButton_Plus|HidNpadButton_Minus)){fx_ui_view.pad_test=0;input_drain=1;}
+            }else if(down&(HidNpadButton_B|HidNpadButton_Plus))fx_ui_view.screen=FX_HOME;
+            else if(confirm){
+                if(fx_ui_view.row==0){
+                    pthread_mutex_unlock(&fx_ui_lock);
+                    int connected=fx_pads_connect();
+                    pthread_mutex_lock(&fx_ui_lock);
+                    fx_ui_view.message=connected?"Controller setup closed. Check both slots above.":"Controller setup cancelled or unavailable. Please retry.";
+                    input_drain=1;last_dir=0;previous_buttons=0;
+                }else{fx_ui_view.pad_test=1;fx_ui_view.message=NULL;input_drain=1;}
+            }else if(dir)fx_ui_view.row=(fx_ui_view.row+dir+2)%2;
         }else if(fx_ui_view.screen==FX_CREDITS){
             if(down&HidNpadButton_B)fx_ui_view.screen=FX_HOME;
             else if(dir||(down&(HidNpadButton_L|HidNpadButton_R)))fx_ui_view.credit_page=1-fx_ui_view.credit_page;
@@ -183,7 +216,8 @@ static void *fx_ui_main(void *arg) {
                 framebufferClose(&fb);fx_art_free(&art);__atomic_store_n(&fx_ui_owned,0,__ATOMIC_RELEASE);exit(0);
             }else fx_ui_view.screen=FX_HOME;
         }
-        if(confirm)fx_sfx_play(fx_ui_view.screen==FX_FAILED?FX_ERROR:FX_CONFIRM,fx_ui_view.sound);
+        if(fx_ui_view.screen==FX_GAMEPAD&&fx_ui_view.pad_test){}
+        else if(confirm)fx_sfx_play(fx_ui_view.screen==FX_FAILED?FX_ERROR:FX_CONFIRM,fx_ui_view.sound);
         else if(down&HidNpadButton_B)fx_sfx_play(FX_BACK,fx_ui_view.sound);
         else if(fx_ui_view.tile!=old_tile||fx_ui_view.row!=old_row||fx_ui_view.credit_page!=old_page)fx_sfx_play(FX_NAV,fx_ui_view.sound);
         if(fx_ui_view.screen==FX_LOADING&&pending&&!(held&HidNpadButton_A)&&armTicksToNs(frame_start-started)>=120000000){

@@ -321,7 +321,9 @@ def main():
                                        for name in ('tools/fextendo_launcher_patches.py','src/runtime/fextendo_presets.h',
                                                     'src/runtime/fextendo_renderers.h','src/runtime/fextendo_ui.h','src/runtime/fextendo_launcher.h','src/runtime/fextendo_logs.h',
                                                     'src/runtime/fextendo_timestamp_pixels.h','src/runtime/fextendo_timestamp.h',
-                                                    'src/runtime/fextendo_overlay_layer.h','src/runtime/fextendo_display.h','src/runtime/fextendo_sfx.h')})
+                                                    'src/runtime/fextendo_overlay_layer.h','src/runtime/fextendo_display.h','src/runtime/fextendo_sfx.h',
+                                                    'src/runtime/fextendo_gamepad.h','src/runtime/fextendo_gamepad_ui.h',
+                                                    'src/runtime/fextendo_gamepad_switch.h','tools/fextendo_gamepad_patches.py')})
     if args.memory_audit:
         report['patch_sources'].update({name: hashlib.sha256((project / name).read_bytes()).hexdigest()
                                        for name in ('tools/fex_memory_probe_patches.py', 'src/runtime/fex_memory_probe.h')})

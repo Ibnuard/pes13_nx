@@ -1,5 +1,15 @@
 # PES13-NX icon
 
+## Live keyboard preview v4
+
+The keyboard and reconnect helpers embed the existing Solid Duo Dark theme
+A/B/X/Y, L/R, SL/SR, Plus and Minus SVG sprites. The generated
+`src/runtime/fextendo_osk_sprites.h` records each source hash and is reproduced
+by `tools/build-fextendo-osk-sprites.py` using Pillow and CairoSVG. Embedding
+these sprites keeps the preview install to a single NRO without changing the
+existing launcher asset format. The original artwork attribution and rights
+below continue to apply.
+
 ## FEXTendo v3.2
 
 Flat Settings/Credits tiles are in `fextendo-v3.2/`. Prompts, generation method
