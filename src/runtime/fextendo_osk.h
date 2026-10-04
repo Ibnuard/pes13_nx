@@ -6,7 +6,10 @@
 #include <stdint.h>
 #include <string.h>
 #include "fextendo_gamepad.h"
-#define FX_OSK_HEIGHT 360
+#define FX_OSK_HEIGHT 252
+#define FX_OSK_KEY_TOP 8
+#define FX_OSK_KEY_HEIGHT 36
+#define FX_OSK_ROW_STEP 40
 #define FX_OSK_QUEUE 32
 struct fx_osk_key { uint16_t character, vk; };
 enum { FX_OSK_SHIFT=1, FX_OSK_MOVE, FX_OSK_CLOSE };
@@ -57,12 +60,12 @@ static void fx_osk_activate(struct fx_osk_core *s,int index) {
 static void fx_osk_bounds(int index,int *x,int *y,int *width) {
     int row=index/12,col=index%12;
     if(row==4&&col)col++;
-    *x=28+col*102;*y=54+row*48;*width=fx_osk_cells[index].width*102-6;
+    *x=28+col*102;*y=FX_OSK_KEY_TOP+row*FX_OSK_ROW_STEP;*width=fx_osk_cells[index].width*102-6;
 }
 static int fx_osk_hit(int x,int y) {
     for(int i=0;i<FX_OSK_CELLS;i++){
         int left,top,width;fx_osk_bounds(i,&left,&top,&width);
-        if(x>=left&&x<left+width&&y>=top&&y<top+42)return i;
+        if(x>=left&&x<left+width&&y>=top&&y<top+FX_OSK_KEY_HEIGHT)return i;
     }
     return -1;
 }

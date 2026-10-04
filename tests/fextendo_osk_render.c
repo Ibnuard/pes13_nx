@@ -1,4 +1,4 @@
-/* Half-height surface bounds and screenshots from the shipped C renderer. */
+/* Compact surface bounds and screenshots from the shipped C renderer. */
 #define FX_KEYBOARD_OVERLAY 1
 #include <assert.h>
 #include "../src/runtime/fextendo_presets.h"
@@ -16,7 +16,7 @@ int main(int argc,char **argv){
         state.selected=n==2?FX_OSK_CELLS-1:24;
         fx_osk_draw(&canvas,&state,n%2,n==2);
         char path[1024];snprintf(path,sizeof(path),"%s/keyboard-%d.ppm",argv[2],n);
-        FILE *f=fopen(path,"wb");assert(f);fprintf(f,"P6\n1280 360\n255\n");
+        FILE *f=fopen(path,"wb");assert(f);fprintf(f,"P6\n1280 %d\n255\n",FX_OSK_HEIGHT);
         for(int y=0;y<FX_OSK_HEIGHT;y++){
             for(int x=0;x<FX_W;x++){
                 uint32_t pixel=pixels[y*1296+x];unsigned char rgb[3]={pixel,pixel>>8,pixel>>16};
@@ -28,10 +28,10 @@ int main(int argc,char **argv){
     }
     for(int i=0;i<FX_OSK_CELLS;i++){
         int x,y,w;fx_osk_bounds(i,&x,&y,&w);
-        assert(x>=0&&x+w<FX_W&&y>=0&&y+42<FX_OSK_HEIGHT);
-        assert(fx_osk_hit(x+w/2,y+21)==i);
+        assert(x>=0&&x+w<FX_W&&y>=0&&y+FX_OSK_KEY_HEIGHT<FX_OSK_HEIGHT);
+        assert(fx_osk_hit(x+w/2,y+FX_OSK_KEY_HEIGHT/2)==i);
     }
-    assert(fx_osk_hit(1279,359)==-1);free(pixels);
+    assert(fx_osk_hit(1279,FX_OSK_HEIGHT-1)==-1);free(pixels);
     pixels=calloc(1296*FX_H,4);assert(pixels);canvas.pixels=pixels;canvas.clip_bottom=FX_H;
     struct fx_pad_sample pads[2]={fx_pad_normalize(FX_PAD_FULL,1,0,0,0,0,0),fx_pad_normalize(FX_PAD_RIGHT,1,0,0,0,0,0)};
     fx_gamepad_pause(&canvas,pads,2,1,0,1);
@@ -45,6 +45,6 @@ int main(int argc,char **argv){
         for(int x=FX_W;x<1296;x++)assert(!pixels[y*1296+x]);
     }
     assert(!fclose(f));free(pixels);free(art.font);
-    puts("PASS: half-screen renderer bounds, stride guards, labels and touch hit targets");
+    puts("PASS: compact renderer bounds, stride guards, labels and touch hit targets");
     return 0;
 }

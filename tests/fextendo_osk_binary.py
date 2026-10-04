@@ -72,10 +72,11 @@ class Model(Delivery):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('elf',type=Path);p.add_argument('--before',type=Path,required=True)
+    p.add_argument('elf',type=Path);p.add_argument('--before',type=Path,help='Optional historical v2 ELF for the one-character regression')
     p.add_argument('--output',type=Path,required=True);a=p.parse_args()
-    old=Delivery(a.before);old.start('hallo');old.drain()
-    assert old.text_received()=='h' and old.pressed=={ord('H')}
+    if a.before:
+        old=Delivery(a.before);old.start('hallo');old.drain()
+        assert old.text_received()=='h' and old.pressed=={ord('H')}
     m=Model(a.elf);before=m.state(0);m.begin(1)
     for slot in (0,1):
         m.pads[slot]=(4,21,1,20000,0,0,0)
@@ -115,10 +116,10 @@ def main():
     root=Path(__file__).resolve().parents[1]
     report={'passed':True,'hardware_tested':False,
             'native_elf_sha256':hashlib.sha256(a.elf.read_bytes()).hexdigest(),
-            'before_elf_sha256':hashlib.sha256(a.before.read_bytes()).hexdigest(),
+            'before_elf_sha256':hashlib.sha256(a.before.read_bytes()).hexdigest() if a.before else None,
             'test_sources':{str(path.relative_to(root)):hashlib.sha256(path.read_bytes()).hexdigest() for path in paths},
-            'checks':['Real v2 status-handling regression reproduced; v4 live input uses NTSTATUS correctly',
-                      'ARM64 overlay queue -> Wine dispatch edits Nunu to Bejo, reopens and edits middle to BeJo',
+            'checks':(['Real v2 status-handling regression reproduced'] if a.before else [])+
+                     ['ARM64 overlay queue -> Wine dispatch edits Nunu to Bejo, reopens and edits middle to BeJo',
                       'Timed Shift/key press and release; real extended scan codes; explicit Enter only',
                       'Close drains queued edits before finish; no duplicate input; both XInput slots stay connected',
                       'Focus/destruction/reconnect/server error cancel queued edits and release Shift/keys',

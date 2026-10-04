@@ -8,7 +8,8 @@ int main(int argc,char **argv) {
     assert(argc==3);assert(fx_art_load(&art,argv[1]));
     uint32_t *buffer=calloc(1296*720,4);assert(buffer);
     struct fx_canvas c={buffer,1296,&art};
-    for(i=0;i<20;i++){
+    for(i=0;i<25;i++){
+        v.settings_page=FX_SETTINGS_ROOT;
         v.screen=i<2?FX_HOME:i<4?FX_SETTINGS:i==4?FX_LOADING:FX_FAILED;
         v.tile=i==1;v.tile_mix=v.tile;v.sound=1;v.battery=82;v.wall_time=1800000000;v.last_played=v.wall_time-7200;v.row=i==3?3:0;v.selected=0;v.frame=32;v.saved=i==3;
         v.fatal=i==6;v.message=i==4?"Loading game files...":"Could not save the preset. Check the SD card.";
@@ -16,14 +17,19 @@ int main(int argc,char **argv) {
         if(i==8){v.screen=FX_SETTINGS;v.row=4;v.timestamp=1;}
         v.splash_ms=i==9?600:0;
         if(i>=10){v.screen=i==10?FX_HOME:FX_CREDITS;v.tile=2;v.tile_mix=2;v.credit_page=i==12;}
-        if(i>=13){v.screen=FX_SETTINGS;v.row=i-6;v.renderer=(i-13)%2;}
+        if(i>=13){v.screen=FX_SETTINGS;v.settings_page=FX_SETTINGS_RENDERER;v.row=(i-13)%2;v.renderer=v.row;}
         if(i==15){v.screen=FX_HOME;v.tile=3;v.tile_mix=3;}
         if(i>=16){
             v.screen=FX_GAMEPAD;v.row=i==17;v.players=2;v.message=NULL;v.pad_test=i==17;
             v.pads[0]=fx_pad_normalize(i==16?FX_PAD_FULL:FX_PAD_LEFT,1,FX_PAD_DOWN|FX_PAD_SL,0,-24000,0,0);
             v.pads[1]=fx_pad_normalize(FX_PAD_RIGHT,i!=18,FX_PAD_X|FX_PAD_SR,0,0,24000,0);
         }
-        v.settings_scroll=fx_settings_scroll_target(v.row);
+        if(i>=20){
+            static const int pages[]={FX_SETTINGS_KEYBOARD,FX_SETTINGS_SHORTCUT,FX_SETTINGS_POSITION,FX_SETTINGS_GRAPHICS,FX_SETTINGS_AUDIO};
+            v.screen=FX_SETTINGS;v.settings_page=pages[i-20];v.row=i==21?1:0;
+            fx_keyboard_options.shortcut=1;fx_keyboard_options.top=1;
+        }
+        v.settings_scroll=fx_settings_scroll_target(v.row,v.settings_page);
         fx_render(&c,&v);
         if(i==19)fx_gamepad_pause(&c,v.pads,2,1,0,1);
         snprintf(path,sizeof(path),"%s/screen-%d.ppm",argv[2],i);FILE *f=fopen(path,"wb");assert(f);
@@ -82,9 +88,9 @@ int main(int argc,char **argv) {
     assert(first>0&&first<1);v.tile=0;fx_motion_step(&v,33);assert(v.tile_mix<first&&v.tile_mix>0);
     v.tile=1;for(i=0;i<20;i++)fx_motion_step(&v,33);assert(v.tile_mix==1);
     v.tile=2;for(i=0;i<25;i++)fx_motion_step(&v,33);assert(v.tile_mix==2);
-    for(int row=0;row<FX_SETTINGS_ROWS;row++){
-        v.row=row;for(i=0;i<25;i++)fx_motion_step(&v,33);
-        assert(v.settings_scroll==fx_settings_scroll_target(row));
+    for(int page=0;page<FX_SETTINGS_PAGES;page++)for(int row=0;row<fx_settings_rows(page);row++){
+        v.settings_page=page;v.row=row;for(i=0;i<25;i++)fx_motion_step(&v,33);
+        assert(v.settings_scroll==fx_settings_scroll_target(row,page));
         float top=row*116-v.settings_scroll;
         assert(top>=0&&top+100<=332);
     }
@@ -136,6 +142,33 @@ int main(int argc,char **argv) {
     assert(!unlink(path));
     assert(!fx_debug_timestamp(argv[1]));assert(fx_debug_timestamp_save(argv[1],1));assert(fx_debug_timestamp(argv[1]));
     assert(fx_debug_timestamp_save(argv[1],0));assert(!fx_debug_timestamp(argv[1]));
+    /* Real navigation + persistence: entering groups must not apply a choice;
+     * B goes back one level and retains the selected parent row. */
+    v=(struct fx_view){.screen=FX_SETTINGS,.selected=2,.renderer=1,.sound=1,.music=1};
+    fx_settings_enter(&v,FX_SETTINGS_ROOT,0);
+    assert(fx_settings_choose(&v,argv[1]));assert(v.settings_page==FX_SETTINGS_GRAPHICS&&v.row==2&&!v.saved);
+    v.row=0;assert(fx_settings_choose(&v,argv[1]));assert(v.selected==0&&fx_selected(argv[1])==0&&v.saved);
+    v.row=1;assert(!fx_settings_choose(&v,"/dev/null/fextendo-test"));assert(v.selected==0);
+    fx_settings_back(&v);assert(v.settings_page==FX_SETTINGS_ROOT&&v.row==0);
+    v.row=1;assert(fx_settings_choose(&v,argv[1]));assert(v.settings_page==FX_SETTINGS_RENDERER&&v.row==1);
+    v.row=0;assert(fx_settings_choose(&v,argv[1]));assert(v.renderer==0);
+    fx_settings_back(&v);assert(v.settings_page==FX_SETTINGS_ROOT&&v.row==1);
+    v.row=2;assert(fx_settings_choose(&v,argv[1]));assert(v.settings_page==FX_SETTINGS_KEYBOARD);
+    assert(fx_settings_choose(&v,argv[1]));assert(v.settings_page==FX_SETTINGS_SHORTCUT&&v.row==1);
+    v.row=2;assert(fx_settings_choose(&v,argv[1]));assert(fx_keyboard_options_load(argv[1]).shortcut==2);
+    v.row=3;assert(!fx_settings_choose(&v,"/dev/null/fextendo-test"));assert(fx_keyboard_options.shortcut==2);
+    fx_settings_back(&v);assert(v.settings_page==FX_SETTINGS_KEYBOARD&&v.row==0);
+    v.row=1;assert(fx_settings_choose(&v,argv[1]));assert(v.settings_page==FX_SETTINGS_POSITION&&v.row==1);
+    v.row=0;assert(fx_settings_choose(&v,argv[1]));assert(!fx_keyboard_options_load(argv[1]).top);
+    fx_settings_back(&v);assert(v.settings_page==FX_SETTINGS_KEYBOARD&&v.row==1);
+    fx_settings_back(&v);assert(v.settings_page==FX_SETTINGS_ROOT&&v.row==2);
+    v.row=3;assert(fx_settings_choose(&v,argv[1]));assert(v.settings_page==FX_SETTINGS_AUDIO);
+    assert(fx_settings_choose(&v,argv[1]));assert(!v.sound&&!fx_menu_sound(argv[1]));
+    v.row=1;assert(fx_settings_choose(&v,argv[1]));assert(!v.music&&!fx_background_music(argv[1]));
+    fx_settings_back(&v);assert(v.settings_page==FX_SETTINGS_ROOT&&v.row==3);
+    v.row=4;assert(fx_settings_choose(&v,argv[1]));assert(v.timestamp&&fx_debug_timestamp(argv[1]));
+    fx_settings_back(&v);assert(v.screen==FX_HOME);
+    puts("Nested Settings: group navigation, one-level Back, saved choices and storage failure passed.");
     puts("Production renderer, padded stride, four presets, checksums and canonical controller preservation passed.");
     return 0;
 }

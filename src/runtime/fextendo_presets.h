@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <time.h>
+#include "fextendo_keyboard_options.h"
 
 static const char *const fx_preset_ids[4] = {"medium-720","low-720","extra-low-540","high-720"};
 static const char *const fx_preset_names[4] = {"Medium 720p","Low 720p","Extra Low 540p","High 720p"};
@@ -44,6 +45,34 @@ static int fx_mkdir_parents(const char *path) {
     for(i=1;p[i];i++)if(p[i]=='/' && p[i-1]!=':'){
         p[i]=0;if(mkdir(p,0777)&&errno!=EEXIST)return 0;p[i]='/';}
     return 1;
+}
+static int fx_keyboard_options_read(const char *path,struct fx_keyboard_options *out) {
+    char data[128]={0};unsigned shortcut,top;int end=0;
+    size_t n=fx_read(path,data,sizeof(data)-1);
+    if(!n||sscanf(data,"[keyboard]\nshortcut=%u\ntop=%u\n%n",&shortcut,&top,&end)!=2||
+       end!=(int)n||shortcut>=FX_KEYBOARD_SHORTCUTS||top>1)return 0;
+    *out=(struct fx_keyboard_options){(int)shortcut,(int)top};return 1;
+}
+static struct fx_keyboard_options fx_keyboard_options_load(const char *root) {
+    struct fx_keyboard_options out={0};char path[800];
+    snprintf(path,sizeof(path),"%s/launcher/keyboard.ini",root);
+    if(fx_keyboard_options_read(path,&out))return out;
+    snprintf(path,sizeof(path),"%s/launcher/keyboard.ini.old",root);
+    fx_keyboard_options_read(path,&out);return out;
+}
+static int fx_keyboard_options_save(const char *root,struct fx_keyboard_options value) {
+    char path[768],old[800],tmp[800],text[80];struct fx_keyboard_options previous;
+    if(value.shortcut<0||value.shortcut>=FX_KEYBOARD_SHORTCUTS||value.top<0||value.top>1)return 0;
+    snprintf(path,sizeof(path),"%s/launcher/keyboard.ini",root);
+    snprintf(old,sizeof(old),"%s.old",path);snprintf(tmp,sizeof(tmp),"%s.new",path);
+    int n=snprintf(text,sizeof(text),"[keyboard]\nshortcut=%d\ntop=%d\n",value.shortcut,value.top);
+    if(!fx_mkdir_parents(path)||!fx_write(tmp,text,(size_t)n))return 0;
+    if(fx_keyboard_options_read(path,&previous)){
+        if(unlink(old)&&errno!=ENOENT)return 0;
+        if(rename(path,old))return 0;
+    }else if(unlink(path)&&errno!=ENOENT)return 0;
+    if(rename(tmp,path)){rename(old,path);return 0;}
+    unlink(old);return 1;
 }
 /* A small journal makes an interrupted multi-file update recoverable on restart.
  * The game is never allowed to launch while recovery is incomplete. */

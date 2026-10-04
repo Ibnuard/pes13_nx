@@ -28,7 +28,7 @@ def main():
              'test_sources':{str(f.relative_to(ROOT)):sha(f) for f in
                              (ROOT/'tests/fextendo_osk_render.c',Path(__file__).resolve())},
              'screenshots':{str(path.relative_to(work)):sha(path) for path in images},
-             'checks':['Actual C renderer with ASan/UBSan, 1280x360 allocation and row-stride guards',
+             'checks':['Actual C renderer with ASan/UBSan, compact surface allocation and row-stride guards',
                        'Every key touch target agrees with drawing bounds',
                        'English normal/Shift/horizontal/queue-full/closing states rendered with controller sprites'],
              'limits':['Host rendering; no Switch VI composition or device frame-time measurement']}

@@ -35,7 +35,8 @@ def main():
     base, work, cache = args.base.resolve(), args.output.resolve(), args.build_root.resolve()
     feature_paths = [ROOT/'tools/build-fextendo-gamepads.py',ROOT/'tools/fextendo_gamepad_patches.py',
                      *(ROOT/'src/runtime'/n for n in ('fextendo_gamepad.h','fextendo_gamepad_ui.h',
-                        'fextendo_gamepad_switch.h','fextendo_ui.h','fextendo_launcher.h','fextendo_presets.h'))]
+                        'fextendo_gamepad_switch.h','fextendo_ui.h','fextendo_launcher.h','fextendo_presets.h',
+                        'fextendo_keyboard_options.h','fextendo_settings.h'))]
     keyboard_headers = ('fextendo_keyboard.h','fextendo_keyboard_switch.h','fextendo_keyboard_wine.h')
     if args.keyboard_overlay:
         keyboard_headers += ('fextendo_osk.h','fextendo_osk_ui.h','fextendo_osk_switch.h','fextendo_osk_display.h','fextendo_osk_sprites.h')
@@ -110,7 +111,7 @@ def main():
         replace(runtime, archived, new)
     feature = work/'feature'
     (feature/'src/runtime').mkdir(parents=True, exist_ok=True)
-    for name in ('fextendo_gamepad.h','fextendo_gamepad_ui.h'):
+    for name in ('fextendo_gamepad.h','fextendo_gamepad_ui.h','fextendo_keyboard_options.h','fextendo_settings.h'):
         shutil.copy2(ROOT/'src/runtime'/name, feature/'src/runtime'/name)
     apply(read, replace, feature)
     expected = {runtime,'wine-nx-probe/source/xinput_unix.c','dlls/win32u/vulkan.c','wine-nx-probe/CMakeLists.txt'}

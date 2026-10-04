@@ -14,6 +14,7 @@ uint64_t fx_osk_open(unsigned player) {
     pthread_mutex_lock(&fx_keyboard_lock);
     if(fx_osk_phase==FX_OSK_IDLE&&fx_keyboard_phase==FX_KBD_IDLE&&!fx_keyboard_delivering()){
         memset(&fx_osk_state,0,sizeof(fx_osk_state));fx_osk_state.generation=1;fx_osk_state.selected=24;
+        fx_osk_state.top=fx_keyboard_options.top;
         fx_osk_player=player;if(!++fx_osk_serial)++fx_osk_serial;token=fx_osk_serial;
         fx_osk_phase=FX_OSK_PENDING;__atomic_store_n(&fx_osk_blocking,1,__ATOMIC_RELEASE);
     }
@@ -54,7 +55,7 @@ static void fx_osk_service(void) {
     struct fx_osk_core view;unsigned player;enum fx_osk_phase phase;
     pthread_mutex_lock(&fx_keyboard_lock);phase=fx_osk_phase;player=fx_osk_player;
     if(phase==FX_OSK_OPEN){
-        if(!fx_osk_state.top)y-=FX_OSK_HEIGHT;
+        if(!fx_osk_state.top)y-=720-FX_OSK_HEIGHT;
         uint64_t ms=armGetSystemTick()/(armGetSystemTickFreq()/1000);
         fx_osk_input(&fx_osk_state,&pads[player],neutral,touching,x,y,ms);
     }

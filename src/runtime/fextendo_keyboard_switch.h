@@ -1,15 +1,18 @@
 /* LGPL-2.1-or-later. Included after the native controller/VI helpers.
  * The existing monitor owns ALL library applets; Wine only queues requests. */
 enum fx_keyboard_phase { FX_KBD_IDLE, FX_KBD_PENDING, FX_KBD_SHOWING, FX_KBD_DRAIN, FX_KBD_DONE };
+#include "fextendo_keyboard_options.h"
 static pthread_mutex_t fx_keyboard_lock=PTHREAD_MUTEX_INITIALIZER;
 static struct fx_text_request fx_keyboard_req;
 static struct fx_text_result fx_keyboard_result;
 static enum fx_keyboard_phase fx_keyboard_phase;
 static uint64_t fx_keyboard_serial;
-static int fx_keyboard_canceled,fx_keyboard_blocked,fx_keyboard_shortcut_blocked,fx_keyboard_manual_pending;
+static int fx_keyboard_canceled,fx_keyboard_blocked,fx_keyboard_manual_pending;
 static int fx_keyboard_delivery;
 static unsigned fx_keyboard_manual_player;
-static uint64_t fx_keyboard_previous_buttons[2];
+static struct fx_keyboard_chord fx_keyboard_chords[2];
+static uint64_t fx_keyboard_manual_deadline;
+static uint64_t fx_keyboard_now_ms(void){return armGetSystemTick()/(armGetSystemTickFreq()/1000);}
 
 int fx_keyboard_input_blocked(void) {
     return
@@ -17,12 +20,14 @@ int fx_keyboard_input_blocked(void) {
         fx_osk_blocked()||
 #endif
         __atomic_load_n(&fx_keyboard_blocked,__ATOMIC_ACQUIRE)||
-        __atomic_load_n(&fx_keyboard_shortcut_blocked,__ATOMIC_ACQUIRE)||fx_keyboard_delivering();
+        fx_keyboard_delivering();
 }
 int fx_keyboard_delivering(void){return __atomic_load_n(&fx_keyboard_delivery,__ATOMIC_ACQUIRE);}
 void fx_keyboard_delivery_done(void){__atomic_store_n(&fx_keyboard_delivery,0,__ATOMIC_RELEASE);}
 int fx_keyboard_manual(void) {
-    return __atomic_exchange_n(&fx_keyboard_manual_pending,0,__ATOMIC_ACQ_REL);
+    if(!__atomic_exchange_n(&fx_keyboard_manual_pending,0,__ATOMIC_ACQ_REL))return 0;
+    uint64_t deadline=__atomic_load_n(&fx_keyboard_manual_deadline,__ATOMIC_ACQUIRE);
+    return !deadline||fx_keyboard_now_ms()<deadline;
 }
 unsigned fx_keyboard_manual_owner(void){return __atomic_load_n(&fx_keyboard_manual_player,__ATOMIC_ACQUIRE);}
 uint64_t fx_keyboard_request(const struct fx_text_request *r) {
@@ -83,30 +88,28 @@ static void fx_keyboard_cancel_all(void) {
 #endif
 }
 /* Called with the controller lock. No applet or keyboard mutex is acquired.
- * Once a chord is recognized, neutral input is delivered until release. */
+ * Suppress input only after Wine actually opens a keyboard, never merely
+ * because gameplay happened to form a shortcut. */
 static void fx_keyboard_poll_locked(void) {
-    const uint64_t chord=FX_PAD_L|FX_PAD_R|FX_PAD_LSTICK;
-    int held=0,clicked=0,neutral=1;
+    /* Preferences are edited by the launcher before the captured game session.
+     * Do not read them from its concurrent controller monitor while in menus. */
+    if(!fx_game_active){memset(fx_keyboard_chords,0,sizeof(fx_keyboard_chords));return;}
+    uint64_t now=fx_keyboard_now_ms();
+    int enabled=appletGetFocusState()==AppletFocusState_InFocus&&
+        !fx_pads_paused()&&!fx_keyboard_input_blocked()&&
+        !__atomic_load_n(&fx_keyboard_manual_pending,__ATOMIC_ACQUIRE);
+    if(__atomic_load_n(&fx_keyboard_manual_pending,__ATOMIC_ACQUIRE)&&
+       now>=__atomic_load_n(&fx_keyboard_manual_deadline,__ATOMIC_ACQUIRE))
+        __atomic_store_n(&fx_keyboard_manual_pending,0,__ATOMIC_RELEASE);
     for(unsigned i=0;i<2;i++){
         uint64_t buttons=fx_samples[i].connected?fx_samples[i].buttons:0;
-        uint64_t pressed=buttons&~fx_keyboard_previous_buttons[i];
-        fx_keyboard_previous_buttons[i]=buttons;
-        if(i>=fx_players)continue;
-        if((buttons&chord)==chord){held=1;if(pressed&FX_PAD_LSTICK)clicked=i+1;}
-        if(!fx_pad_neutral(&fx_samples[i]))neutral=0;
+        uint64_t mask=fx_keyboard_chord_mask(fx_keyboard_options.shortcut,fx_samples[i].kind);
+        if(fx_keyboard_chord_poll(&fx_keyboard_chords[i],buttons,mask,now,enabled&&i<fx_players)){
+            __atomic_store_n(&fx_keyboard_manual_player,i,__ATOMIC_RELEASE);
+            __atomic_store_n(&fx_keyboard_manual_deadline,now+1000,__ATOMIC_RELEASE);
+            __atomic_store_n(&fx_keyboard_manual_pending,1,__ATOMIC_RELEASE);enabled=0;
+        }
     }
-    if(!fx_game_active)return;
-    if(held)
-        __atomic_store_n(&fx_keyboard_shortcut_blocked,1,__ATOMIC_RELEASE);
-    if(clicked&&!fx_pads_paused()&&!fx_keyboard_delivering()&&!__atomic_load_n(&fx_keyboard_blocked,__ATOMIC_ACQUIRE)
-#ifdef FX_KEYBOARD_OVERLAY
-       &&!fx_osk_blocked()
-#endif
-    ){
-        __atomic_store_n(&fx_keyboard_manual_player,clicked-1,__ATOMIC_RELEASE);
-        __atomic_store_n(&fx_keyboard_manual_pending,1,__ATOMIC_RELEASE);
-    }
-    if(neutral)__atomic_store_n(&fx_keyboard_shortcut_blocked,0,__ATOMIC_RELEASE);
 }
 static unsigned fx_keyboard_validation_limit;
 static SwkbdTextCheckResult fx_keyboard_validate(char *text,size_t size) {

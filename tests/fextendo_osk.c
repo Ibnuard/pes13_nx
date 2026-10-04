@@ -67,6 +67,7 @@ int main(void){
     assert(!strcmp(field,"Bunu")&&cursor==4);close_keyboard();
     /* A held opening chord must not type, move the caret or repeat. */
     fresh();fx_samples[1].buttons=FX_PAD_L|FX_PAD_R|FX_PAD_LSTICK;fx_keyboard_poll_locked();pump();
+    ticks+=600;fx_keyboard_poll_locked();pump();
     for(int i=0;i<8;i++)step();assert(!fx_osk_state.armed&&!event_count);
     fx_samples[1].buttons=0;step();assert(fx_osk_state.armed);close_keyboard();
     /* Focus loss, destruction, native focus loss and disconnect release Shift
@@ -95,10 +96,11 @@ int main(void){
     fx_samples[1].buttons=0;step();assert(!fx_osk_blocked());
     /* Touch positions follow top/bottom placement, and holding a touch does
      * not repeat letters. Moving by Y is usable on every normalized pad. */
-    fresh();open_keyboard(0);touch_on=1;touch_x=40;touch_y=FX_OSK_HEIGHT+54+2*48+10;
+    fresh();open_keyboard(0);touch_on=1;touch_x=40;touch_y=720-FX_OSK_HEIGHT+FX_OSK_KEY_TOP+2*FX_OSK_ROW_STEP+10;
     step();step();touch_on=0;finish_keys();assert(!strcmp(field,"Nunua"));
-    press(0,FX_PAD_Y);assert(fx_osk_state.top);touch_on=1;touch_y=54+2*48+10;
+    press(0,FX_PAD_Y);assert(fx_osk_state.top);touch_on=1;touch_y=FX_OSK_KEY_TOP+2*FX_OSK_ROW_STEP+10;
     step();touch_on=0;finish_keys();assert(!strcmp(field,"Nunuaa"));close_keyboard();
+    fresh();fx_keyboard_options.top=1;open_keyboard(1);assert(fx_osk_state.top);close_keyboard();
     struct fx_osk_core s={.armed=1};struct fx_pad_sample pad={.connected=1};
     for(int i=0;i<FX_OSK_QUEUE;i++)assert(fx_osk_enqueue(&s,(struct fx_osk_key){'a',0}));
     assert(!fx_osk_enqueue(&s,(struct fx_osk_key){'b',0})&&s.full&&s.count==FX_OSK_QUEUE);

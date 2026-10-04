@@ -24,7 +24,8 @@ static int fx_osk_display_show(const struct fx_osk_core *state,unsigned player,i
         if(R_FAILED(framebufferMakeLinear(&p->fb)))goto fail;
     }
     viGetDisplayLogicalResolution(&p->display,&w,&h);if(w<=0||h<=0){w=1280;h=720;}
-    if(R_FAILED(viSetLayerSize(&p->layer,w,h/2))||R_FAILED(viSetLayerPosition(&p->layer,0,state->top?0:h/2)))goto fail;
+    s32 keyboard_height=h*FX_OSK_HEIGHT/FX_H;
+    if(R_FAILED(viSetLayerSize(&p->layer,w,keyboard_height))||R_FAILED(viSetLayerPosition(&p->layer,0,state->top?0:h-keyboard_height)))goto fail;
     u32 stride;uint32_t *pixels=framebufferBegin(&p->fb,&stride);
     if(!pixels)goto fail;
     struct fx_canvas canvas={.pixels=pixels,.stride=(int)stride/4,.art=&p->art,.clip_bottom=FX_OSK_HEIGHT};

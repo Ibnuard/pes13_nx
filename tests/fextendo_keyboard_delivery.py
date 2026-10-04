@@ -117,7 +117,7 @@ def main():
     for text in ('hallo','Hallo','HaLLo','Manager Test','AAaa 11!','é😀',''):
         m=Model(a.elf);m.start(text);m.drain()
         assert m.text_received()==text,(text,m.text_received())
-        assert not m.pressed and not m.get('fx_keyboard_blocked') and not m.get('fx_keyboard_shortcut_blocked')
+        assert not m.pressed and not m.get('fx_keyboard_blocked')
         count=len(m.events);m.pump();assert len(m.events)==count
     for signal in (2,3):
         m=Model(a.elf);m.start('Hallo',signal);m.pump()

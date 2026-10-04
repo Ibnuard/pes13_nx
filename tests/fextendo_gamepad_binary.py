@@ -15,14 +15,22 @@ class Model(Base):
         super().__init__(path)
         self.pads=[(8,1,1<<15,0,-20000,0,0),(16,1,1<<2,0,0,0,20000)]
         self.calls=[];self.waits=0;self.locks=0
+        self.counter_ms=1000
         self.vm.mem_write(self.symbols['fx_players'],struct.pack('<I',2))
 
     def hook(self,vm,pc,size,user):
         s=self.symbols
+        # Physical counter reads are inlined by libnx. Model only the timer,
+        # leaving the linked shortcut/XInput arithmetic and state untouched.
+        instruction=struct.unpack('<I',vm.mem_read(pc,4))[0]
+        if instruction&~31 in (0xd53be020,0xd53be000): # CNTPCT_EL0 / CNTFRQ_EL0
+            vm.reg_write(reg(instruction&31),self.counter_ms*19200 if instruction&~31==0xd53be020 else 19200000)
+            vm.reg_write(arm.UC_ARM64_REG_PC,pc+4);return
         if pc==self.stop:
             self.returned=True;vm.emu_stop()
         elif pc==s.get('pthread_once'):
             self.ret() # initialized shared controller service; no SD setting read
+        elif pc==s.get('appletGetFocusState'):self.ret(1)
         elif pc==s.get('pthread_mutex_lock'):
             self.locks+=1;assert self.locks==1;self.ret()
         elif pc==s.get('pthread_mutex_unlock'):

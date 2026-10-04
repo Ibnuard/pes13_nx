@@ -137,9 +137,8 @@ def main():
     assert m.call('fx_keyboard_validate',m.data,1025)==1
     m.vm.mem_write(m.data,'é😀'.encode()+b'\0')
     assert m.call('fx_keyboard_validate',m.data,1025)==0
-    # Run physical libnx -> normalization -> rising-edge shortcut on each
-    # player. A second click works while shoulders remain held; waiting with
-    # the stick depressed never emits another request.
+    # Run physical libnx -> normalization -> timed shortcut on each player.
+    # A request cannot suppress gameplay until Wine actually opens a keyboard.
     for player in (0,1):
         for style,connected,shoulders,stick in (
             (1,1,(1<<6)|(1<<7),1<<4),
@@ -151,12 +150,24 @@ def main():
             pad.state(player);assert not pad.call('fx_keyboard_manual')
             pad.pads[player]=(style,connected,shoulders|stick,0,0,0,0)
             sample=pad.state(player)
-            assert sample[1]==1 and sample[3]==0 and pad.call('fx_keyboard_manual')==1
+            assert sample[1]==1 and sample[3]!=0 and not pad.call('fx_keyboard_manual')
+            pad.counter_ms+=599;pad.state(player);assert not pad.call('fx_keyboard_manual')
+            pad.counter_ms+=1;sample=pad.state(player)
+            assert sample[3]!=0 and pad.call('fx_keyboard_manual')==1
+            assert pad.call('fx_keyboard_manual_owner')==player
+            assert pad.state(player)[3]!=0
             pad.state(player);assert not pad.call('fx_keyboard_manual')
             pad.pads[player]=(style,connected,shoulders,0,0,0,0)
             pad.state(player);assert not pad.call('fx_keyboard_manual')
             pad.pads[player]=(style,connected,shoulders|stick,0,0,0,0)
-            pad.state(player);assert pad.call('fx_keyboard_manual')==1
+            pad.state(player);pad.counter_ms+=600;pad.state(player)
+            assert pad.call('fx_keyboard_manual')==1
+            pad.pads[player]=(style,connected,shoulders,20000,0,0,0)
+            pad.state(player)
+            pad.pads[player]=(style,connected,shoulders|stick,20000,0,0,0)
+            pad.state(player);pad.counter_ms+=600;pad.state(player)
+            pad.counter_ms+=1001;assert not pad.call('fx_keyboard_manual')
+            assert pad.state(player)[3]!=0
     report={'passed':True,'hardware_tested':False,
             'native_elf_sha256':hashlib.sha256(a.elf.read_bytes()).hexdigest(),
             'checks':['ARM64 request queue and single applet serialization',
@@ -164,7 +175,8 @@ def main():
                       'P2 button drain, Cancel, repeated reconnect cancellation and stale tokens',
                       'Keyboard delivery suppresses P1/P2 without disconnecting XInput; packets change',
                       'Native applet gates XInput; background HID absence does not trigger reconnect',
-                      'One-click shortcut on P1/P2 full, paired and horizontal L/R Joy-Con; no hold/repeat',
+                      '600ms shortcut on P1/P2 full, paired and horizontal L/R Joy-Con; no repeat',
+                      'Pending/stale shortcut never latches XInput; analog motion does not prevent rearming',
                       'Native validation rejects malformed Unicode without storage writes']}
     a.output.write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report,indent=2))
 

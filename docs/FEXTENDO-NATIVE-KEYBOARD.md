@@ -1,5 +1,10 @@
 # FEXTendo keyboard previews
 
+The newer [grouped settings/input preview](FEXTENDO-INPUT-SETTINGS-PREVIEW.md)
+adds configurable held shortcuts, a compact 252 px keyboard and grouped
+launcher settings. Its install and test instructions supersede the v4
+shortcut and half-height layout instructions below for that preview only.
+
 Preview v4 adds live editing for custom game fields, with an English UI and
 the existing controller helper sprites embedded in the NRO. It does not read
 the game's previous text into another input field. Preview v3 delivered full

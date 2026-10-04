@@ -95,6 +95,7 @@ static void *fx_ui_main(void *arg) {
     }
     fx_ui_view.selected=fx_selected(RUNTIME_DIR);
     fx_ui_view.renderer=fx_renderer_selected(RUNTIME_DIR);
+    fx_keyboard_options=fx_keyboard_options_load(RUNTIME_DIR);
     fx_ui_view.timestamp=fx_debug_timestamp(RUNTIME_DIR);
     fx_ui_view.last_played=fx_last_played(RUNTIME_DIR);
     fx_ui_view.sound=fx_menu_sound(RUNTIME_DIR);
@@ -148,7 +149,7 @@ static void *fx_ui_main(void *arg) {
             if(down&HidNpadButton_B)fx_ui_view.tile=0;
             if(confirm&&fx_ui_view.tile==3){fx_ui_view.screen=FX_CREDITS;fx_ui_view.credit_page=0;}
             else if(confirm&&fx_ui_view.tile==2){fx_ui_view.screen=FX_GAMEPAD;fx_ui_view.row=0;fx_ui_view.message=NULL;fx_ui_view.pad_test=0;}
-            else if(confirm&&fx_ui_view.tile==1){fx_ui_view.screen=FX_SETTINGS;fx_ui_view.row=fx_ui_view.selected;fx_ui_view.settings_scroll=fx_settings_scroll_target(fx_ui_view.row);fx_ui_view.saved=0;}
+            else if(confirm&&fx_ui_view.tile==1){fx_ui_view.screen=FX_SETTINGS;fx_settings_enter(&fx_ui_view,FX_SETTINGS_ROOT,0);}
             else if(confirm&&!fx_pads_ready()){
                 fx_ui_view.screen=FX_GAMEPAD;fx_ui_view.row=0;fx_ui_view.pad_test=0;
                 fx_ui_view.message="Connect a Player 1 controller before Play.";
@@ -168,28 +169,16 @@ static void *fx_ui_main(void *arg) {
                 }
             }
         }else if(fx_ui_view.screen==FX_SETTINGS){
-            if(dir){fx_ui_view.row=(fx_ui_view.row+dir+FX_SETTINGS_ROWS)%FX_SETTINGS_ROWS;fx_ui_view.saved=0;}
-            if(down&HidNpadButton_B)fx_ui_view.screen=FX_HOME;
+            int rows=fx_settings_rows(fx_ui_view.settings_page);
+            if(dir){fx_ui_view.row=(fx_ui_view.row+dir+rows)%rows;fx_ui_view.saved=0;}
+            if(down&HidNpadButton_B)fx_settings_back(&fx_ui_view);
             else if(confirm){
-                if(fx_ui_view.row>=7){
-                    int selected=fx_ui_view.row-7;
-                    if(fx_renderer_save(RUNTIME_DIR,selected)){fx_ui_view.renderer=selected;fx_ui_view.saved=1;}
-                    else{fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;fx_ui_view.message="Could not save the renderer. Check the SD card.";}
+                int music=fx_ui_view.music;
+                if(!fx_settings_choose(&fx_ui_view,RUNTIME_DIR)){
+                    fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;
+                    fx_ui_view.message="Could not save settings. Check the SD card.";
                 }
-                else if(fx_ui_view.row==6){
-                    if(fx_background_music_save(RUNTIME_DIR,!fx_ui_view.music)){fx_ui_view.music=!fx_ui_view.music;fx_music_set(fx_ui_view.music);fx_ui_view.saved=1;}
-                    else{fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;fx_ui_view.message="Could not save the music setting. Check the SD card.";}
-                }
-                else if(fx_ui_view.row==5){
-                    if(fx_menu_sound_save(RUNTIME_DIR,!fx_ui_view.sound)){fx_ui_view.sound=!fx_ui_view.sound;fx_ui_view.saved=1;}
-                    else{fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;fx_ui_view.message="Could not save the sound setting. Check the SD card.";}
-                }
-                else if(fx_ui_view.row==4){
-                    if(fx_debug_timestamp_save(RUNTIME_DIR,!fx_ui_view.timestamp)){fx_ui_view.timestamp=!fx_ui_view.timestamp;fx_ui_view.saved=1;}
-                    else{fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;fx_ui_view.message="Could not save the timestamp setting. Check the SD card.";}
-                }
-                else if(fx_apply_preset(RUNTIME_DIR,fx_ui_view.row)){fx_ui_view.selected=fx_ui_view.row;fx_ui_view.saved=1;}
-                else{fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;fx_ui_view.message="Could not save the preset. Check the SD card.";}
+                if(music!=fx_ui_view.music)fx_music_set(fx_ui_view.music);
             }
         }else if(fx_ui_view.screen==FX_GAMEPAD){
             if(fx_ui_view.pad_test){
