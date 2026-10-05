@@ -47,12 +47,13 @@ def version():
     commit = merged_commit()
     # Keep the runtime version visible; the revision distinguishes package runs.
     runtime = json.loads((ROOT / 'release/runtime-lock.json').read_text())['runtime_version']
-    if not re.fullmatch(r'\d+\.\d+\.\d+', runtime):
+    match = re.fullmatch(r'(\d+\.\d+\.\d+)(?:-r\d+)?', runtime)
+    if not match:
         raise ValueError('Invalid runtime version')
     run = os.environ['GITHUB_RUN_NUMBER']
     if not run.isdecimal():
         raise ValueError('Invalid workflow run number')
-    value = 'v' + runtime + '-r' + run
+    value = 'v' + match[1] + '-r' + run
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
         output.write('version=' + value + '\ncommit=' + commit + '\n')
     print(value)
@@ -138,8 +139,8 @@ def publish(folder, tag, commit):
                 'Copy your own PES 2013 PC v1.0 files into `switch/pes13-fex/drive_c/PES13/`. '
                 'Export your own installation metadata as described in README.txt. '
                 'Game files and private installation metadata are not included.\n\n'
-                'Runtime: production v1 + launching fix, pre-DFE DLL, two controllers '
-                'and live keyboard v4; NRO display version '
+                'Runtime: production r6 memory recovery, two controllers, grouped settings, '
+                'live keyboard, normal launch without diagnostic files and optional Debug launch; NRO display version '
                 + manifest['runtime_version'] + '. Package validation is not a Switch hardware test. '
                 'The standalone NRO/NSP assets are for existing installations.\n\n' + notes['body'])
         release = gh('api', prefix + '/releases', '--method', 'POST', data={
