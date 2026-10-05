@@ -98,3 +98,9 @@ FEXTendo 0.3.8-r6 includes an adapted libnx virtual-address manager in
 `src/runtime/fextendo_virtmem.c`, retaining switchbrew/libnx authors' ISC notice
 in that source and `licenses/libnx-LICENSE.md.txt`. It adds an exhaustive search
 after random placement fails; source provenance/digest are recorded in the file.
+
+Runtime Fixer links devkitPro's Switch libcurl (7.69.1, libnx TLS backend) and
+MiniZip for manual HTTPS download and ZIP extraction in the launcher. Notices
+are retained in `licenses/curl-COPYING.txt` and `licenses/minizip-NOTICE.txt`.
+The compressed data uses the existing zlib dependency. The build report pins
+the exact linked libcurl/MiniZip archives independently of the Wine/FEX runtime.

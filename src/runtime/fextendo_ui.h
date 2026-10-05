@@ -14,16 +14,16 @@
 #define FX_WHITE FX_COLOR(242,248,252)
 #define FX_MUTED FX_COLOR(170,185,208)
 #define FX_BLUE FX_COLOR(51,194,255)
-#define FX_APP_VERSION "0.3.8-r6"
-#define FX_RELEASE "v3.8-r4"
+#define FX_APP_VERSION "0.3.9-fixer1"
+#define FX_RELEASE "v3.9-fixer1"
 #define FX_TILE_MIN 212
 #define FX_TILE_MAX 260
 #define FX_SCENES 6
 #ifndef FX_SPLASH_MS
 #define FX_SPLASH_MS 2400
 #endif
-enum fx_screen { FX_HOME,FX_SETTINGS,FX_LOADING,FX_FAILED,FX_CREDITS,FX_GAMEPAD };
-struct fx_view { struct fx_pad_sample pads[2]; unsigned players; int pad_test; enum fx_screen screen;int tile,row,selected,saved,fatal,timestamp,sound,battery,charging,credit_page,music,renderer,settings_page,debug_launch;float tile_mix,settings_scroll;unsigned frame,splash_ms;uint64_t last_played,wall_time;const char *message; };
+enum fx_screen { FX_HOME,FX_SETTINGS,FX_LOADING,FX_FAILED,FX_CREDITS,FX_GAMEPAD,FX_REPAIR };
+struct fx_view { struct fx_pad_sample pads[2]; unsigned players; int pad_test; enum fx_screen screen;int tile,row,selected,saved,fatal,timestamp,sound,battery,charging,credit_page,music,renderer,settings_page,debug_launch,repair_busy,repair_percent,repair_finishing,repair_blocked;float tile_mix,settings_scroll;unsigned frame,splash_ms;uint64_t last_played,wall_time;const char *message; };
 #include "fextendo_settings.h"
 struct fx_art { uint32_t *bg,*blur,*logo,*icon,*buttons,*gamepad,*wordmark,*settings_icon,*credits_icon,*gamepad_icon,*scene[FX_SCENES],*tiles[4][FX_TILE_MAX-FX_TILE_MIN+1];uint16_t spinner[43*43];float decay[4097];unsigned char *font;size_t font_size; };
 struct fx_canvas { uint32_t *pixels;int stride;const struct fx_art *art;int clip_top,clip_bottom,clip_left,clip_right; };
@@ -468,7 +468,7 @@ static void fx_splash(struct fx_canvas *c,unsigned remaining) {
 #include "fextendo_gamepad_ui.h"
 static void fx_render(struct fx_canvas *c,const struct fx_view *v) {
     int y,i;char status[96];
-    int scene_index=v->splash_ms?3:v->screen==FX_LOADING?2:v->screen==FX_CREDITS?4+(v->credit_page!=0):v->screen==FX_SETTINGS;
+    int scene_index=v->splash_ms?3:v->screen==FX_LOADING?2:v->screen==FX_CREDITS?4+(v->credit_page!=0):(v->screen==FX_SETTINGS||v->screen==FX_REPAIR);
     const uint32_t *scene=c->art->scene[scene_index];
     for(y=0;y<FX_H;y++)memcpy(c->pixels+y*c->stride,scene+y*FX_W,FX_W*4);
     if(v->splash_ms){fx_splash(c,v->splash_ms);return;}
@@ -476,6 +476,23 @@ static void fx_render(struct fx_canvas *c,const struct fx_view *v) {
     fx_battery(c,v);
     if(v->screen==FX_CREDITS)return;
     if(v->screen==FX_GAMEPAD){fx_gamepad_page(c,v);return;}
+    if(v->screen==FX_REPAIR){
+        fx_rect(c,0,658,FX_W,FX_H-658,FX_COLOR(9,23,41),255);
+        fx_text(c,417,122,"Runtime Fixer",2,FX_WHITE);
+        fx_text(c,417,172,"Wine / FEX / DXVK",0,FX_MUTED);
+        fx_round(c,412,230,766,240,18,FX_COLOR(12,25,39),255);
+        fx_wrapped(c,440,266,v->message?v->message:"Preparing...",705);
+        if(v->repair_busy){
+            fx_round(c,442,412,700,6,3,FX_COLOR(36,58,84),255);
+            if(v->repair_percent)fx_round(c,442,412,7*v->repair_percent,6,3,FX_BLUE,255);
+            snprintf(status,sizeof(status),"%d%%",v->repair_percent);fx_text(c,1092,438,status,0,FX_MUTED);
+        }
+        fx_text(c,418,519,"Game files, saves and preferences are preserved.",0,FX_MUTED);
+        fx_text(c,418,557,v->repair_busy?"Keep the application open until this step finishes.":"Game or patch DLLs must come from your own installation.",0,FX_MUTED);
+        if(!v->repair_finishing)fx_hint(c,56,689,"B",v->repair_busy?"Cancel":"Back");
+        else fx_text(c,56,679,"Finishing safely...",0,FX_MUTED);
+        return;
+    }
     if(v->screen!=FX_SETTINGS){
         fx_play(c,76,552,v->tile==0,v->frame);
         char played[48];fx_last_played_label(played,v->last_played,v->wall_time);
@@ -548,9 +565,9 @@ static void fx_render(struct fx_canvas *c,const struct fx_view *v) {
             int thumb_y=216+(int)((332-thumb)*v->settings_scroll/((rows-3)*116.f));
             fx_round(c,1194,thumb_y,3,thumb,1,FX_COLOR(45,142,202),255);
         }
-        fx_text(c,418,589,v->saved?"Settings saved. Ready to play.":"16:9 widescreen  /  VSync ON",0,v->saved?FX_BLUE:FX_MUTED);
+        fx_text(c,418,589,v->settings_page==FX_SETTINGS_MAINTENANCE?"Game files and saves are preserved.":v->saved?"Settings saved. Ready to play.":"16:9 widescreen  /  VSync ON",0,v->saved?FX_BLUE:FX_MUTED);
     }
-    fx_hint(c,56,689,"A",v->screen==FX_SETTINGS?(fx_settings_group(v,v->row)?"Open":fx_settings_toggle(v,v->row)>=0?"Toggle":"Apply"):"Select");
+    fx_hint(c,56,689,"A",v->screen==FX_SETTINGS?(v->settings_page==FX_SETTINGS_MAINTENANCE?"Start":fx_settings_group(v,v->row)?"Open":fx_settings_toggle(v,v->row)>=0?"Toggle":"Apply"):"Select");
     if(v->screen==FX_FAILED){
         int failed=v->screen==FX_FAILED;uint32_t accent=failed?FX_COLOR(255,142,138):FX_BLUE;
         fx_rect(c,0,0,FX_W,FX_H,FX_COLOR(1,7,17),202);

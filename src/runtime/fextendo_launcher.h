@@ -18,6 +18,17 @@ static pthread_mutex_t fx_handoff_lock=PTHREAD_MUTEX_INITIALIZER;
 static int fx_ui_created,fx_ui_owned,fx_ui_stop,fx_ui_command,fx_boot_started,fx_first_present;
 static struct fx_view fx_ui_view={.screen=FX_HOME,.sound=1,.battery=-1};
 static char fx_ui_message[192];
+#include "fextendo_runtime_api.h"
+static int fx_repair_cancelled;
+static int fx_repair_cancel(void){return __atomic_load_n(&fx_repair_cancelled,__ATOMIC_ACQUIRE)||__atomic_load_n(&fx_ui_command,__ATOMIC_ACQUIRE)<0;}
+static void fx_repair_progress(int phase,uint64_t current,uint64_t total,const char *name){
+    static const char *const labels[]={"Checking runtime","Downloading runtime","Verifying package","Installing runtime","Recovering previous runtime"};
+    pthread_mutex_lock(&fx_ui_lock);
+    fx_ui_view.repair_percent=total?(int)(current*100/total):0;
+    fx_ui_view.repair_finishing=phase==FXR_INSTALL||phase==FXR_RECOVER;
+    snprintf(fx_ui_message,sizeof(fx_ui_message),"%s: %s",labels[phase],name);
+    fx_ui_view.message=fx_ui_message;pthread_mutex_unlock(&fx_ui_lock);
+}
 static uint64_t fx_history_tick;
 static int fx_history_written;
 static void fx_record_first_present(void) {
@@ -165,6 +176,9 @@ static void *fx_ui_main(void *arg) {
                 fx_ui_view.screen=FX_GAMEPAD;fx_ui_view.row=0;fx_ui_view.pad_test=0;
                 fx_ui_view.message="Connect a Player 1 controller before Play.";
             }
+            else if(confirm&&fx_ui_view.repair_blocked){
+                fx_ui_view.screen=FX_SETTINGS;fx_settings_enter(&fx_ui_view,FX_SETTINGS_MAINTENANCE,1);
+            }
             else if(confirm){
                 FILE *game=fopen(DEFAULT_TARGET,"rb");
                 if(!game){fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;fx_ui_view.message="PES13 was not found. Check the game folder.";}
@@ -178,7 +192,7 @@ static void *fx_ui_main(void *arg) {
                     fx_timestamp_arm(fx_ui_view.timestamp,frame_start);
 #ifdef FX_SCREEN_DEBUG
                     fx_debug_file_begin(fx_ui_view.tile==4);
-                    fx_launch_debug_log("[STARTUP] FEXTendo 0.3.8-r6 / startup console / debug files enabled");
+                    fx_launch_debug_log("[STARTUP] FEXTendo 0.3.9-fixer1 / startup console / debug files enabled");
 #endif
                     fx_ui_view.screen=FX_LOADING;fx_ui_view.message="Preparing your game...";pending=1;started=frame_start;
                 }
@@ -189,11 +203,24 @@ static void *fx_ui_main(void *arg) {
             if(down&HidNpadButton_B)fx_settings_back(&fx_ui_view);
             else if(confirm){
                 int music=fx_ui_view.music;
+                if(fx_ui_view.settings_page==FX_SETTINGS_MAINTENANCE){
+                    fx_ui_view.screen=FX_REPAIR;fx_ui_view.repair_busy=1;
+                    fx_ui_view.repair_finishing=0;fx_ui_view.repair_percent=0;
+                    fx_ui_view.message="Preparing runtime check...";
+                    __atomic_store_n(&fx_repair_cancelled,0,__ATOMIC_RELEASE);
+                    __atomic_store_n(&fx_ui_command,fx_ui_view.row?3:2,__ATOMIC_RELEASE);
+                }else
                 if(!fx_settings_choose(&fx_ui_view,RUNTIME_DIR)){
                     fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;
                     fx_ui_view.message="Could not save settings. Check the SD card.";
                 }
                 if(music!=fx_ui_view.music)fx_music_set(fx_ui_view.music);
+            }
+        }else if(fx_ui_view.screen==FX_REPAIR){
+            if(down&HidNpadButton_B){
+                if(fx_ui_view.repair_busy){
+                    if(!fx_ui_view.repair_finishing)__atomic_store_n(&fx_repair_cancelled,1,__ATOMIC_RELEASE);
+                }else{fx_ui_view.screen=FX_SETTINGS;fx_settings_enter(&fx_ui_view,FX_SETTINGS_MAINTENANCE,0);}
             }
         }else if(fx_ui_view.screen==FX_GAMEPAD){
             if(fx_ui_view.pad_test){
@@ -265,6 +292,8 @@ failed_fb:
 }
 static int fx_launcher_start(void) {
     int command,rc;pthread_attr_t attr;
+    struct fxr_job recovery={.root=RUNTIME_DIR};
+    if(!fx_runtime_recover(&recovery)){fx_native_error(recovery.error[0]?recovery.error:"Runtime recovery failed. Keep the repair folder.");return 0;}
     if(pthread_attr_init(&attr)){
         fx_native_error("Unable to prepare the launcher thread.");return 0;
     }
@@ -280,6 +309,23 @@ static int fx_launcher_start(void) {
     for(;;){
         while(!(command=__atomic_load_n(&fx_ui_command,__ATOMIC_ACQUIRE)))svcSleepThread(10000000);
         if(command<0){pthread_join(fx_ui_thread,NULL);fx_ui_created=0;return 0;}
+        if(command==2||command==3){
+            struct fxr_job job={.root=RUNTIME_DIR,.progress=fx_repair_progress,.cancelled=fx_repair_cancel};
+            int ok=fx_runtime_recover(&job)&&fx_runtime_check(&job);
+            if(ok&&command==3)ok=fx_runtime_repair(&job);
+            struct fxr_job restore={.root=RUNTIME_DIR};
+            int recovered=fx_runtime_recover(&restore);
+            pthread_mutex_lock(&fx_ui_lock);
+            fx_ui_view.repair_blocked=!recovered;fx_ui_view.repair_busy=fx_ui_view.repair_finishing=0;
+            if(!recovered)snprintf(fx_ui_message,sizeof(fx_ui_message),"%s",restore.error[0]?restore.error:"Recovery failed. Keep the repair folder and check the SD card.");
+            else if(!ok)snprintf(fx_ui_message,sizeof(fx_ui_message),"%s",job.error[0]?job.error:"Runtime operation failed. Check SD card space.");
+            else if(!job.changed)snprintf(fx_ui_message,sizeof(fx_ui_message),"All %u runtime files verified. No repair needed.",fx_runtime_file_count());
+            else if(command==2)snprintf(fx_ui_message,sizeof(fx_ui_message),"%u runtime files are missing or damaged. Choose Repair runtime to restore them.",job.changed);
+            else snprintf(fx_ui_message,sizeof(fx_ui_message),"Repaired %u runtime files. Ready to launch.",job.changed);
+            fx_ui_view.message=fx_ui_message;
+            if(__atomic_load_n(&fx_ui_command,__ATOMIC_ACQUIRE)>=0)__atomic_store_n(&fx_ui_command,0,__ATOMIC_RELEASE);
+            pthread_mutex_unlock(&fx_ui_lock);continue;
+        }
         /* Main thread performs SD I/O while the UI keeps the loading spinner moving.
          * No guest can load either D3D9 copy until the complete transaction succeeds. */
         int renderer=fx_ui_view.renderer,selected=fx_ui_view.selected;

@@ -49,8 +49,8 @@ def main():
     assert not a.scratch_pages or (a.thread_stack_reserve and a.scratch_reserve),'Scratch pages retain prior memory fixes'
     assert not a.rust_heap or a.scratch_pages,'Rust CPU fallback shares the general page store'
     cache=a.build_root.resolve()
-    lock = json.loads((ROOT/'release/runtime-lock.json').read_text())
-    assert lock['tag'] == 'runtime-keyboard-v4' and sha(a.archive) == lock['sha256']
+    # Build source baseline is independent of the promoted release artifact.
+    assert sha(a.archive) == '119ab5400d23c65af661994ba38868f379aaf4ea83f679b110468c53bfac38bb'
     work = a.output.resolve();work.mkdir(parents=True, exist_ok=True)
     archive = work/'approved'
     if not archive.exists():
@@ -118,6 +118,8 @@ def main():
     paths={name for name in baseline['feature_sources'] if name.startswith('src/runtime/')}
     paths.add('src/runtime/fextendo_keyboard_options.h')
     paths.add('src/runtime/fextendo_settings.h')
+    paths.update(('src/runtime/fextendo_runtime_fixer.h','src/runtime/fextendo_runtime_catalog.h','src/runtime/fextendo_runtime_download.h',
+                  'src/runtime/fextendo_runtime_api.h','src/runtime/fextendo_runtime_module.c'))
     paths.add('src/runtime/fextendo_diagnostics.h')
     if a.production:paths.update(('src/runtime/fextendo_launch_debug.h','src/runtime/fextendo_debug_console.h',
         'src/runtime/fextendo_launch_memory.h','src/runtime/fextendo_startup_heap.h','src/runtime/fextendo_debug_file.h',
@@ -134,6 +136,11 @@ def main():
     data=re.sub(r'"/Users/[^"\n]+/feature/src/runtime"','"'+str(feature)+'"',data)
     assert '/Users/' not in data
     cmake.write_text(data)
+    cmake.write_text(cmake.read_text()+'\ntarget_link_libraries(wine-nx-runtime PRIVATE curl minizip z nx)\n')
+    cmake.write_text(cmake.read_text()+'\nadd_library(fextendo-repair OBJECT "'+str(feature/'fextendo_runtime_module.c')+'")\n'
+        'target_compile_definitions(fextendo-repair PRIVATE __SWITCH__)\n'
+        'target_compile_options(fextendo-repair PRIVATE -ffunction-sections -fdata-sections)\n'
+        'target_sources(wine-nx-runtime PRIVATE $<TARGET_OBJECTS:fextendo-repair>)\n')
     # Archived generated C contains absolute includes from the production
     # builder. Rebase those paths onto the archived (not live) source files.
     for path in source.rglob('*'):
@@ -245,6 +252,8 @@ def main():
     report['scratch_reserve_version']=4 if a.scratch_reserve else 0
     report['scratch_reserve_mib']=a.scratch_reserve_mib if a.scratch_reserve else 0
     report['native_fex_sources']=fex_sources
+    report['runtime_fixer']=1
+    report['repair_dependencies']={n:sha(sdk/'portlibs/switch/lib'/n) for n in ('libcurl.a','libminizip.a')}
     if a.scratch_reserve:report['build_scripts']['tools/fextendo_scratch_patches.py']=sha(ROOT/'tools/fextendo_scratch_patches.py')
     if a.page_store:report['build_scripts']['tools/fextendo_page_store_patches.py']=sha(ROOT/'tools/fextendo_page_store_patches.py')
     if a.rust_heap:report['build_scripts']['tools/fextendo_rust_heap_patches.py']=sha(ROOT/'tools/fextendo_rust_heap_patches.py')
@@ -270,7 +279,7 @@ def main():
          '-DPES13_LIBNX_EXCEPTION_OBJECT='+str(exception),'-DCMAKE_BUILD_TYPE=Release'])
     run(['cmake','--build',build,'--target','wine-nx-runtime','-j',a.jobs])
     nro=work/'pes13-fex.nro';nacp=work/'pes13-fex.nacp'
-    run([sdk/'tools/bin/nacptool','--create','PES13 - FEXTendo','AndroSwitch Project','0.3.8-r6' if a.production else '0.3.8-test',nacp])
+    run([sdk/'tools/bin/nacptool','--create','PES13 - FEXTendo','AndroSwitch Project','0.3.9-fixer1' if a.production else '0.3.8-test',nacp])
     run([sdk/'tools/bin/elf2nro',build/'wine-nx-runtime.elf',nro,'--nacp='+str(nacp),
          '--icon='+str(archive/'source/assets/fextendo-v3/nro-icon.jpg')])
     assert deps==module.native_dependency_receipt(mesa,sdk)

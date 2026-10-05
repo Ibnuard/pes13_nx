@@ -2,9 +2,9 @@
 #ifndef FEXTENDO_SETTINGS_H
 #define FEXTENDO_SETTINGS_H
 enum fx_settings_page { FX_SETTINGS_ROOT,FX_SETTINGS_GRAPHICS,FX_SETTINGS_RENDERER,
-    FX_SETTINGS_KEYBOARD,FX_SETTINGS_SHORTCUT,FX_SETTINGS_POSITION,FX_SETTINGS_AUDIO,FX_SETTINGS_PAGES };
+    FX_SETTINGS_KEYBOARD,FX_SETTINGS_SHORTCUT,FX_SETTINGS_POSITION,FX_SETTINGS_AUDIO,FX_SETTINGS_MAINTENANCE,FX_SETTINGS_PAGES };
 static int fx_settings_rows(int page) {
-    static const int counts[FX_SETTINGS_PAGES]={6,4,2,2,FX_KEYBOARD_SHORTCUTS,2,2};
+    static const int counts[FX_SETTINGS_PAGES]={7,4,2,2,FX_KEYBOARD_SHORTCUTS,2,2,2};
     return page>=0&&page<FX_SETTINGS_PAGES?counts[page]:6;
 }
 static float fx_settings_scroll_target(int row,int page) {
@@ -23,22 +23,23 @@ static void fx_settings_back(struct fx_view *v) {
     case FX_SETTINGS_RENDERER:fx_settings_enter(v,FX_SETTINGS_ROOT,1);break;
     case FX_SETTINGS_KEYBOARD:fx_settings_enter(v,FX_SETTINGS_ROOT,2);break;
     case FX_SETTINGS_AUDIO:fx_settings_enter(v,FX_SETTINGS_ROOT,3);break;
+    case FX_SETTINGS_MAINTENANCE:fx_settings_enter(v,FX_SETTINGS_ROOT,6);break;
     case FX_SETTINGS_SHORTCUT:fx_settings_enter(v,FX_SETTINGS_KEYBOARD,0);break;
     case FX_SETTINGS_POSITION:fx_settings_enter(v,FX_SETTINGS_KEYBOARD,1);break;
     }
 }
 static const char *fx_settings_title(int page) {
-    static const char *const titles[]={"Settings","Graphics preset","Renderer","Keyboard","Keyboard shortcut","Keyboard position","Audio"};
+    static const char *const titles[]={"Settings","Graphics preset","Renderer","Keyboard","Keyboard shortcut","Keyboard position","Audio","Runtime Fixer"};
     return titles[page];
 }
 static const char *fx_settings_subtitle(int page) {
     static const char *const text[]={"Choose a group to configure.","Choose the graphics preset for your next game.",
         "Choose the renderer for your next game.","Choose how to open and position the keyboard.",
-        "Hold the chosen shortcut for 0.6 seconds.","You can also press Y while typing to move it.","Sounds and background music in the launcher."};
+        "Hold the chosen shortcut for 0.6 seconds.","You can also press Y while typing to move it.","Sounds and background music in the launcher.","Check or restore Wine, FEX and renderer files."};
     return text[page];
 }
 static const char *fx_settings_label(const struct fx_view *v,int row) {
-    static const char *const root[]={"Graphics preset","Renderer","Keyboard","Audio","Debug timestamp","Show debug launch"};
+    static const char *const root[]={"Graphics preset","Renderer","Keyboard","Audio","Debug timestamp","Show debug launch","Maintenance"};
     static const char *const keyboard[]={"Shortcut","Position"};
     static const char *const audio[]={"Menu sounds","Background music"};
     switch(v->settings_page){
@@ -48,6 +49,7 @@ static const char *fx_settings_label(const struct fx_view *v,int row) {
     case FX_SETTINGS_SHORTCUT:return fx_keyboard_shortcut_names[row];
     case FX_SETTINGS_POSITION:return row?"Top":"Bottom";
     case FX_SETTINGS_AUDIO:return audio[row];
+    case FX_SETTINGS_MAINTENANCE:return row?"Repair runtime":"Check runtime";
     default:return root[row];
     }
 }
@@ -56,13 +58,14 @@ static const char *fx_settings_detail(const struct fx_view *v,int row) {
     case FX_SETTINGS_ROOT:
         return row==0?fx_preset_names[v->selected]:row==1?fx_renderer_names[v->renderer]:
             row==2?"Shortcut and screen position":row==3?"Menu sounds and background music":
-            row==4?"On-screen stopwatch while you play":"Add a tile for troubleshooting startup";
+            row==4?"On-screen stopwatch while you play":row==5?"Add a tile for troubleshooting startup":"Runtime Fixer";
     case FX_SETTINGS_GRAPHICS:return fx_preset_details[row];
     case FX_SETTINGS_RENDERER:return row?"Async shader compilation  /  Alternative renderer":"Default renderer";
     case FX_SETTINGS_KEYBOARD:return row?(fx_keyboard_options.top?"Top":"Bottom"):fx_keyboard_shortcut_names[fx_keyboard_options.shortcut];
     case FX_SETTINGS_SHORTCUT:return row==4?"Open automatically in detected text fields only":"Single Joy-Con: hold SL + SR + Stick";
     case FX_SETTINGS_POSITION:return row?"Place the keyboard at the top of the screen":"Place the keyboard at the bottom of the screen";
     case FX_SETTINGS_AUDIO:return row?"Original ambient loop in the launcher":"Soft sounds for navigation and actions";
+    case FX_SETTINGS_MAINTENANCE:return row?"Download verified files  /  Wi-Fi required":"Check missing or damaged runtime files  /  Offline";
     default:return "";
     }
 }
@@ -82,12 +85,14 @@ static int fx_settings_toggle(const struct fx_view *v,int row) {
     return -1;
 }
 static int fx_settings_group(const struct fx_view *v,int row) {
-    return (v->settings_page==FX_SETTINGS_ROOT&&row<4)||v->settings_page==FX_SETTINGS_KEYBOARD;
+    return (v->settings_page==FX_SETTINGS_ROOT&&(row<4||row==6))||v->settings_page==FX_SETTINGS_KEYBOARD;
 }
 /* Returns failure without changing the displayed selection when storage fails. */
 static int fx_settings_choose(struct fx_view *v,const char *root) {
     int row=v->row,page=v->settings_page;
     if(row<0||row>=fx_settings_rows(page))return 0;
+    if(page==FX_SETTINGS_ROOT&&row==6){fx_settings_enter(v,FX_SETTINGS_MAINTENANCE,0);return 1;}
+    if(page==FX_SETTINGS_MAINTENANCE){v->screen=FX_REPAIR;return 1;}
     if(page==FX_SETTINGS_ROOT&&row<4){
         static const int pages[]={FX_SETTINGS_GRAPHICS,FX_SETTINGS_RENDERER,FX_SETTINGS_KEYBOARD,FX_SETTINGS_AUDIO};
         fx_settings_enter(v,pages[row],row==0?v->selected:row==1?v->renderer:0);return 1;
