@@ -121,10 +121,12 @@ class PackageTests(unittest.TestCase):
             env = {'GITHUB_OUTPUT': str(out), 'GITHUB_EVENT_PATH': str(event),
                    'GITHUB_EVENT_NAME': 'pull_request_target', 'GITHUB_REPOSITORY': 'owner/repo',
                    'GITHUB_SHA': 'b' * 40, 'GITHUB_RUN_NUMBER': '42'}
-            with patch.dict(os.environ, env):
+            (Path(temp) / 'release').mkdir()
+            (Path(temp) / 'release/runtime-lock.json').write_text(json.dumps({'runtime_version': '0.3.8-r6'}))
+            with patch.dict(os.environ, env), patch.object(ci, 'ROOT', Path(temp)):
                 ci.version()
                 first = out.read_text()
-                self.assertEqual(first, 'version=v0.3.7-r42\ncommit=' + 'a' * 40 + '\n')
+                self.assertEqual(first, 'version=v0.3.8-r42\ncommit=' + 'a' * 40 + '\n')
                 ci.version()
                 self.assertEqual(out.read_text(), first + first)
                 self.assertEqual(ci.release_title('v0.3.7'), 'PES13 FEXTendo V.0.3.7')

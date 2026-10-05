@@ -14,7 +14,7 @@ FEXTendo / PES13-NX - complete SD package
    It uses the same icon as the NRO, 32-bit no-alias address space, 4 cores
    and svcDebug disabled.
 
-Included: production v1 NRO + startup fix, two controllers and keyboard v4,
+Included: production r6 NRO, memory recovery, two controllers and live keyboard,
 pre-DFE FEX DLL, Wine runtime,
 DXVK renderers, launcher artwork/audio/fonts, all four graphics presets,
 and the default Medium 720p settings.dat with compatibility copies.
@@ -25,11 +25,17 @@ not included. Close the game before updating; back up your own settings.
 The standalone NRO and NSP downloads are for updating an existing complete
 installation. New installations need the -sd.zip, not just those binaries.
 See manifest.json and SHA256SUMS for exact versions and hashes. Releases use
-PES13 FEXTendo V.0.3.7; automatic packages add a revision such as r42.
+PES13 FEXTendo V.0.3.8; automatic packages add a revision such as r42.
 CI checks package integrity and imports; it does not run Switch hardware tests.
 Two-player support includes full controllers and horizontal single Joy-Con.
-For text fields, hold L + R and click L3 once; with a horizontal Joy-Con,
-hold SL + SR and click its stick. The live editor uses English labels and
+Select your shortcut and position in Settings > Keyboard. By default, hold
+L + R + L3; with a horizontal Joy-Con, hold SL + SR + its stick.
+The live editor uses English labels and
 controller sprites. See source/keyboard-v4/docs/FEXTENDO-NATIVE-KEYBOARD.md.
 
 Sources, build evidence and third-party notices are included alongside switch/.
+
+Normal launch does not write diagnostic logs. Enable Show debug launch in
+Settings and use the Debug launch tile to collect startup and error logs.
+Some users still report intermittent HIGH transition freezes; use Medium
+when affected and retain logs from Debug launch for investigation.

@@ -40,19 +40,26 @@ game executables and data are excluded.
 ## Approved production input
 
 This is **package/validation CI**, not an unattended Switch cross-compilation
-pipeline. It distributes the approved keyboard-v4 NRO built on production v1
-with the launching fix and pre-DFE DLL. This includes two controllers, horizontal
-Joy-Con support and live keyboard editing with English labels and controller
-sprites. It uses the existing `drive_c` layout; the runtime image experiment is
-not part of this release.
+pipeline. It distributes the exact tested production r6 NRO (display version
+0.3.8-r6), retaining the keyboard-v4 runtime DLLs and forwarder. This adds the
+memory-recovery checkpoint, grouped settings, configurable live keyboard,
+quiet normal launch and optional Debug launch. Some users still report an
+intermittent HIGH transition freeze; the checkpoint is not a universal fix.
+It retains the existing `drive_c` layout.
 
 `release/runtime-lock.json` pins an immutable input archive on the
-`runtime-keyboard-v4` dependency release, its SHA256, individual binary hashes
+`runtime-production-r6` dependency release, its SHA256, individual binary hashes
 and runtime source fingerprints. The input includes required runtime DLLs,
 assets, forwarder, licenses, modified sources and existing build/test evidence.
 The matching NSP already targets the stable NRO path with the same icon,
 32-bit no-alias address space, four cores and svcDebug disabled. CI checks its
 identity and NCAs against the verified build receipt; it needs no console keys.
+
+`tools/prepare_production_r6_runtime.py` verifies the delivered r6 package and
+28 test receipts before replacing only the NRO in the immutable keyboard-v4
+input. Its source-bound build receipt is retained in the dependency archive.
+The NRO suffix `-r6` is independent of the workflow's package revision;
+automatic tags use `v0.3.8-r<workflow run number>`.
 
 Changing runtime code, build patches or the icon without approving a new input
 fails CI. For a new runtime, build/test the NRO and matching DLLs first, create

@@ -13,6 +13,13 @@ not specified. All 28 local validation groups passed for the delivered binary.
 Its NRO SHA-256 is
 `9d5acf823e5494f5d04e8b5ebd7cd54487e5033de4df09be3e8e76db1cf9eb06`.
 
+Subsequent feedback reports intermittent freezing on HIGH with the latest r6
+NRO: some runs succeed, while others stop during a PES transition overlay and
+audio repeats. No matching r6 failure logs have been supplied for this report.
+The earlier successful session is a checkpoint, not validation that HIGH is
+fixed. The screenshot locates the visible stall but cannot identify allocation
+failure, a parked exception thread, or a synchronization stall as its cause.
+
 ## r5 evidence and r6 changes
 
 The latest PE/crash.log matches the delivered r5 build ID
