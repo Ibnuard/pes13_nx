@@ -16,6 +16,19 @@ import release_ci as ci
 
 
 class PackageTests(unittest.TestCase):
+    def test_source_line_endings_match_git_without_ignoring_content(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'src').mkdir()
+            source = root / 'src/runtime.c'
+            source.write_bytes(b'int x;\r\n')
+            lock = {'source_fingerprints': package.fingerprints(root)}
+            source.write_bytes(b'int x;\n')
+            package.verify_sources(lock, root)
+            source.write_bytes(b'int y;\n')
+            with self.assertRaises(ValueError):
+                package.verify_sources(lock, root)
+
     def test_empty_game_and_save_directories_survive_extraction(self):
         dirs = {'switch/pes13-fex/drive_c/PES13/img/',
                 'switch/pes13-fex/drive_c/KONAMI/Pro Evolution Soccer 2013/save/'}

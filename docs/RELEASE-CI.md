@@ -60,6 +60,9 @@ identity and NCAs against the verified build receipt; it needs no console keys.
 input. Its source-bound build receipt is retained in the dependency archive.
 The NRO suffix `-r6` is independent of the workflow's package revision;
 automatic tags use `v0.3.8-r<workflow run number>`.
+Build text fingerprints normalize CRLF to LF, matching `.gitattributes` on
+Linux CI. Runtime archives, binaries and the original build receipts retain
+byte-exact SHA256 checks.
 
 Changing runtime code, build patches or the icon without approving a new input
 fails CI. For a new runtime, build/test the NRO and matching DLLs first, create
