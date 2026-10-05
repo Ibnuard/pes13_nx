@@ -3,12 +3,15 @@
 #include "../src/runtime/fextendo_presets.h"
 #include "../src/runtime/fextendo_renderers.h"
 #include "../src/runtime/fextendo_ui.h"
+#define FX_LAUNCH_DEBUG_NOW() 0ull
+#define FX_DEBUG_PIXELS_ONLY 1
+#include "../src/runtime/fextendo_debug_console.h"
 int main(int argc,char **argv) {
     struct fx_art art;struct fx_view v={.screen=FX_HOME};char path[1024];int i,x,y;
     assert(argc==3);assert(fx_art_load(&art,argv[1]));
     uint32_t *buffer=calloc(1296*720,4);assert(buffer);
     struct fx_canvas c={buffer,1296,&art};
-    for(i=0;i<25;i++){
+    for(i=0;i<28;i++){
         v.settings_page=FX_SETTINGS_ROOT;
         v.screen=i<2?FX_HOME:i<4?FX_SETTINGS:i==4?FX_LOADING:FX_FAILED;
         v.tile=i==1;v.tile_mix=v.tile;v.sound=1;v.battery=82;v.wall_time=1800000000;v.last_played=v.wall_time-7200;v.row=i==3?3:0;v.selected=0;v.frame=32;v.saved=i==3;
@@ -24,13 +27,24 @@ int main(int argc,char **argv) {
             v.pads[0]=fx_pad_normalize(i==16?FX_PAD_FULL:FX_PAD_LEFT,1,FX_PAD_DOWN|FX_PAD_SL,0,-24000,0,0);
             v.pads[1]=fx_pad_normalize(FX_PAD_RIGHT,i!=18,FX_PAD_X|FX_PAD_SR,0,0,24000,0);
         }
-        if(i>=20){
+        if(i>=20&&i<25){
             static const int pages[]={FX_SETTINGS_KEYBOARD,FX_SETTINGS_SHORTCUT,FX_SETTINGS_POSITION,FX_SETTINGS_GRAPHICS,FX_SETTINGS_AUDIO};
             v.screen=FX_SETTINGS;v.settings_page=pages[i-20];v.row=i==21?1:0;
             fx_keyboard_options.shortcut=1;fx_keyboard_options.top=1;
         }
+        if(i==25){v.screen=FX_SETTINGS;v.settings_page=FX_SETTINGS_ROOT;v.row=5;v.debug_launch=1;}
+        if(i==26){v.screen=FX_HOME;v.tile=4;v.tile_mix=4;v.debug_launch=1;}
         v.settings_scroll=fx_settings_scroll_target(v.row,v.settings_page);
         fx_render(&c,&v);
+        if(i==27){
+            struct fx_debug_snapshot snap={.count=6,.elapsed_ms=7320};
+            const char *lines[]={"[0.000] [STARTUP] FEXTendo 0.3.8-r3 / startup console / debug files enabled",
+                "[0.002] [MEMORY] mode=32-bit no-alias base=200000 span=ffe00000 alias=0",
+                "[0.004] [STARTUP] verifying renderer files...","[0.932] [STARTUP] renderer ready=1; verifying game settings...",
+                "[1.064] [INIT] Wine NLS/environment ready","[7.310] [ATTACH] loading C:\\windows\\system32\\libwow64fex.dll"};
+            for(int row=0;row<6;row++)snprintf(snap.lines[row],sizeof(snap.lines[row]),"%s",lines[row]);
+            fx_debug_draw(&c,&snap);
+        }
         if(i==19)fx_gamepad_pause(&c,v.pads,2,1,0,1);
         snprintf(path,sizeof(path),"%s/screen-%d.ppm",argv[2],i);FILE *f=fopen(path,"wb");assert(f);
         fprintf(f,"P6\n1280 720\n255\n");
@@ -54,7 +68,7 @@ int main(int argc,char **argv) {
     assert(test_changes>500);
     v.pad_test=0;fx_render(&c,&v);assert(!memcmp(snapshot,buffer,1296*720*4));
     v.pads[1].connected=0;fx_render(&c,&v);assert(memcmp(snapshot,buffer,1296*720*4));
-    v.screen=FX_HOME;v.splash_ms=0;v.tile=0;v.tile_mix=0;v.frame=0;fx_render(&c,&v);
+    v.debug_launch=0;v.screen=FX_HOME;v.splash_ms=0;v.tile=0;v.tile_mix=0;v.frame=0;fx_render(&c,&v);
     memcpy(snapshot,buffer,1296*720*4);v.frame=140;fx_render(&c,&v);
     unsigned active_changed=0;
     for(y=230;y<530;y++)for(x=915;x<1248;x++)assert(snapshot[y*1296+x]==buffer[y*1296+x]);
@@ -167,6 +181,10 @@ int main(int argc,char **argv) {
     v.row=1;assert(fx_settings_choose(&v,argv[1]));assert(!v.music&&!fx_background_music(argv[1]));
     fx_settings_back(&v);assert(v.settings_page==FX_SETTINGS_ROOT&&v.row==3);
     v.row=4;assert(fx_settings_choose(&v,argv[1]));assert(v.timestamp&&fx_debug_timestamp(argv[1]));
+    v.row=5;assert(!fx_debug_launch(argv[1]));assert(fx_settings_choose(&v,argv[1]));
+    assert(v.debug_launch&&fx_debug_launch(argv[1])&&fx_settings_toggle(&v,5)==1);
+    assert(!fx_settings_choose(&v,"/dev/null/fextendo-test"));assert(v.debug_launch);
+    v.tile=4;assert(fx_settings_choose(&v,argv[1]));assert(!v.debug_launch&&!fx_debug_launch(argv[1])&&!v.tile);
     fx_settings_back(&v);assert(v.screen==FX_HOME);
     puts("Nested Settings: group navigation, one-level Back, saved choices and storage failure passed.");
     puts("Production renderer, padded stride, four presets, checksums and canonical controller preservation passed.");

@@ -49,6 +49,9 @@ static void fx_crash_write(unsigned block){
 }
 /* Called only at bootstrap, before guest threads. All file names are fixed. */
 static __attribute__((noinline,used)) void fx_crash_init(const unsigned char *nro){
+#ifdef FX_SCREEN_DEBUG
+    if(!wine_nx_launch_debug_active())return;
+#endif
     FsFileSystem *fs=fsdevGetDeviceFileSystem("sdmc");
     if(!fs)return;
     FsDirEntryType type;
@@ -71,7 +74,9 @@ static __attribute__((noinline,used)) void fx_crash_init(const unsigned char *nr
                        fx_crash_buffer,FX_CRASH_BYTES,FsWriteOption_None);
         if(R_FAILED(rc)){fsFileClose(&fx_crash_file);return;}
     }
-#if defined(FX_RUST_HEAP)
+#if defined(FX_SCREEN_DEBUG)
+    fx_crash_text("FEXTENDO_CRASH_V2\nCandidate=production-0.3.8-r6-debug-launch\n");
+#elif defined(FX_RUST_HEAP)
     fx_crash_text("FEXTENDO_CRASH_V2\nCandidate=high-native-heap-v1\n");
 #elif FX_SCRATCH_PAGES >= 2
     fx_crash_text("FEXTENDO_CRASH_V2\nCandidate=high-fragmented-heap-v1\n");
@@ -103,6 +108,9 @@ static __attribute__((noinline,used)) void fx_crash_init(const unsigned char *nr
 /* __start__ is an absolute-zero linker symbol on this target. Resolve the
  * real text mapping via a live code address instead of dereferencing zero. */
 static __attribute__((noinline,used)) void fx_crash_bootstrap(void){
+#ifdef FX_SCREEN_DEBUG
+    if(!wine_nx_launch_debug_active())return;
+#endif
     MemoryInfo info;u32 page;
     const unsigned char *nro=NULL;
     if(R_SUCCEEDED(svcQueryMemory(&info,&page,(u64)(uintptr_t)&fx_crash_bootstrap))&&
@@ -119,6 +127,9 @@ static void fx_crash_settings(unsigned preset,unsigned renderer){
     __atomic_store_n(&fx_crash_renderer,renderer,__ATOMIC_RELAXED);
 }
 static int fx_crash_begin(const char *kind){
+#ifdef FX_SCREEN_DEBUG
+    if(!wine_nx_launch_debug_active())return 0;
+#endif
     if(!__atomic_load_n(&fx_crash_ready,__ATOMIC_ACQUIRE))return 0;
     unsigned expected=0;
     if(!__atomic_compare_exchange_n(&fx_crash_lock,&expected,1,0,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED)){
@@ -170,7 +181,12 @@ static void fx_crash_failure_line(const char *s){
     int stop=0;
     for(unsigned i=0;i+4<=n;i++)
         if(s[i]=='S'&&s[i+1]=='T'&&s[i+2]=='O'&&s[i+3]=='P'){stop=1;break;}
-    if(!stop||!fx_crash_begin("FEX_STOP"))return;
+    /* Preserve the allocator's per-request failure snapshot before the
+     * frozen PE caller can dereference NULL or another thread terminates. */
+    const char prefix[]="[FEX3-NHEAP-FAIL]";
+    int heap_failure=n>=sizeof(prefix)-1;
+    for(unsigned i=0;heap_failure&&i<sizeof(prefix)-1;i++)if(s[i]!=prefix[i])heap_failure=0;
+    if((!stop&&!heap_failure)||!fx_crash_begin(heap_failure?"FEX_HEAP_FAILED":"FEX_STOP"))return;
     fx_crash_text("message=");
     for(unsigned i=0;i<n;i++)fx_crash_char(s[i]>=32&&s[i]<127?s[i]:'?');
     fx_crash_char('\n');fx_crash_end();

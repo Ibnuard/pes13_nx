@@ -30,6 +30,9 @@ class Model(Base):
                 token=self.data+0x2000+self.reservation_serial*32
                 self.reservation_serial+=1;assert token not in self.reservations
                 self.reservations[token]=(vm.reg_read(reg(0)),vm.reg_read(reg(1)));self.ret(token)
+        elif name=='mallinfo':
+            # newlib returns its ten-int aggregate through the hidden x8.
+            vm.mem_write(vm.reg_read(reg(8)),bytes(40));self.ret(0)
         elif name=='malloc':
             n=vm.reg_read(reg(0));assert not self.locks
             if n>self.limit or self.fail_after==0:

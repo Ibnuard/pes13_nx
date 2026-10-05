@@ -20,12 +20,21 @@ class Model(Base):
         self.frees = []
         self.locks = []
         self.next = 0x60000000
+        self.page_helpers={v for k,v in self.symbols.items() if k.startswith('fx_scratch_pages_take_report')}
 
     def hook(self, vm, pc, size, user):
         # Isolate reserve/ordinary-heap semantics. The separate scratch-pages
         # binary suite executes the real emergency mapping path and failures.
         if pc == self.symbols.get('fx_scratch_pages_take'):
             self.ret(0)
+        elif pc in self.page_helpers:
+            report=vm.reg_read(reg(1))
+            if report:vm.mem_write(report,struct.pack('<II',4,0))
+            self.ret(0)
+        elif pc == self.symbols.get('wine_nx_release_idle_backing_pages'):
+            self.ret(0)
+        elif pc == self.symbols.get('mallinfo'):
+            vm.mem_write(vm.reg_read(reg(8)),bytes(40));self.ret(0)
         elif pc == self.symbols.get('fx_scratch_pages_release'):
             self.ret(0)
         elif pc == self.symbols.get('mutexLock'):
@@ -58,8 +67,28 @@ class Model(Base):
             super().hook(vm, pc, size, user)
 
     def stats(self):
-        self.call('pes13_fex_scratch_snapshot', self.data)
-        return struct.unpack('<16Q', self.vm.mem_read(self.data, 128))
+        if 'pes13_fex_scratch_snapshot' in self.symbols:
+            self.call('pes13_fex_scratch_snapshot', self.data)
+            return struct.unpack('<16Q', self.vm.mem_read(self.data, 128))
+        # Production dead-strips the diagnostic getter. Inspect the actual
+        # linked allocator state without adding telemetry to the shipped NRO.
+        stats = list(struct.unpack('<16Q', self.vm.mem_read(self.symbols['fx_scratch_stats'], 128)))
+        units = struct.unpack('<I', self.vm.mem_read(self.symbols['fx_scratch_units'], 4))[0]
+        if 'fx_scratch_lengths' in self.symbols:
+            pages=units*BLOCK//4096
+            lengths=struct.unpack('<'+'H'*pages,self.vm.mem_read(self.symbols['fx_scratch_lengths'],pages*2))
+            run=largest=0
+            for n in lengths:
+                run=0 if n else run+1;largest=max(largest,run)
+            stats[9]=largest*4096
+            return tuple(stats)
+        used = struct.unpack('<I', self.vm.mem_read(self.symbols['fx_scratch_used'], 4))[0]
+        run = largest = 0
+        for i in range(units):
+            run = 0 if used & (1 << i) else run + 1
+            largest = max(largest, run)
+        stats[9] = largest * BLOCK  # The getter computes this on demand.
+        return tuple(stats)
 
     def host(self):
         table = self.call('pes13_fex_native_host')

@@ -3,16 +3,22 @@
 Executes the linked scratch host callbacks, reserve, page fallback and teardown.
 Only allocator, virtual address reservation and Horizon syscalls are modeled.
 """
-import argparse,hashlib,json,struct
+import argparse,hashlib,io,json,struct
 from pathlib import Path
 from fex_reservations import Model as NativeModel,arm,reg
 MIB=1024*1024
 class Model(NativeModel):
     def __init__(self,path):
+        class Buffered:
+            def __init__(self,data):self.data=data
+            def open(self,mode):return io.BytesIO(self.data)
+        if hasattr(path,'read_bytes'):path=Buffered(path.read_bytes())
         super().__init__(path);self.names={v:k for k,v in self.symbols.items()}
         self.next=0x80000000;self.alias=0xb0000000;self.allocations={};self.maps={};self.reservations={};self.locks=[]
         self.bootstrap=True;self.limit=MIB;self.fail_after=None;self.failed_allocations=[]
         self.map_calls=0;self.fail_map=0;self.unmap_calls=0;self.fail_unmap=0;self.no_va=False;self.no_reservation=False
+        self.permission_calls=0;self.fail_permission=0;self.no_stack_va=False;self.no_code_va=False;self.code_disabled=False
+        self.stack_searches=0;self.code_searches=0
     def hook(self,vm,pc,size,user):
         n=self.names.get(pc,'');x=lambda i:vm.reg_read(reg(i))
         if pc==self.stop:self.returned=True;vm.emu_stop()
@@ -34,9 +40,13 @@ class Model(NativeModel):
             vm.mem_unmap(p,self.allocations.pop(p));self.ret()
         elif n=='virtmemLock':assert not self.locks;self.locks.append('vm');self.ret()
         elif n=='virtmemUnlock':assert self.locks.pop()=='vm';self.ret()
-        elif n=='virtmemFindStack':
+        elif n=='envIsSyscallHinted':self.ret(not self.code_disabled)
+        elif n=='envGetOwnProcessHandle':self.ret(0x1234)
+        elif n in ('virtmemFindStack','virtmemFindCodeMemory'):
             assert self.locks==['vm'] and x(1)==4096
-            if self.no_va:self.ret(0)
+            if n=='virtmemFindStack':self.stack_searches+=1
+            else:self.code_searches+=1
+            if self.no_va or (self.no_stack_va if n=='virtmemFindStack' else self.no_code_va):self.ret(0)
             else:p=self.alias;self.alias+=x(0)+0x8000;self.ret(p)
         elif n=='virtmemAddReservation':
             assert self.locks==['vm']
@@ -45,18 +55,27 @@ class Model(NativeModel):
         elif n=='virtmemRemoveReservation':
             assert self.locks==['vm'];addr,length=self.reservations.pop(x(0))
             assert not any(addr<=alias<addr+length for alias in self.maps);self.ret()
-        elif n=='svcMapMemory':
-            assert not self.locks;self.map_calls+=1
+        elif n in ('svcMapMemory','svcMapProcessCodeMemory'):
+            assert self.locks in ([],['vm']);self.map_calls+=1
+            if n=='svcMapProcessCodeMemory':assert x(0)==0x1234;dst,src,length=x(1),x(2),x(3)
+            else:dst,src,length=x(0),x(1),x(2)
             if self.map_calls==self.fail_map:self.ret(0xd401)
             else:
-                assert x(1) in self.allocations and self.allocations[x(1)]==x(2)
-                assert any(addr<=x(0) and x(0)+x(2)<=addr+length for addr,length in self.reservations.values())
-                vm.mem_map(x(0),x(2));self.maps[x(0)]=(x(1),x(2));self.ret()
-        elif n=='svcUnmapMemory':
-            assert not self.locks;self.unmap_calls+=1;assert self.maps.get(x(0))==(x(1),x(2))
+                assert src in self.allocations and self.allocations[src]==length
+                assert any(addr<=dst and dst+length<=addr+span for addr,span in self.reservations.values())
+                vm.mem_map(dst,length);self.maps[dst]=(src,length);self.ret()
+        elif n=='svcSetProcessMemoryPermission':
+            assert x(0)==0x1234 and x(3)==3 and self.maps[x(1)][1]==x(2)
+            self.permission_calls+=1;self.ret(0xd401 if self.permission_calls==self.fail_permission else 0)
+        elif n in ('svcUnmapMemory','svcUnmapProcessCodeMemory'):
+            if n=='svcUnmapProcessCodeMemory':assert x(0)==0x1234;dst,src,length=x(1),x(2),x(3)
+            else:dst,src,length=x(0),x(1),x(2)
+            assert not self.locks;self.unmap_calls+=1;assert self.maps.get(dst)==(src,length)
             if self.unmap_calls==self.fail_unmap:self.ret(0xd401)
-            else:del self.maps[x(0)];vm.mem_unmap(x(0),x(2));self.ret()
+            else:del self.maps[dst];vm.mem_unmap(dst,length);self.ret()
         elif n=='snprintf':vm.mem_write(x(0),b'\0');self.ret(0)
+        elif n=='wine_nx_release_idle_backing_pages':self.ret(0) # No idle Wine arenas in this fixture.
+        elif n=='mallinfo':vm.mem_write(x(8),bytes(40));self.ret(0) # newlib aggregate return.
         elif n in ('write','fsFileWrite','abort'):raise AssertionError('Unexpected '+n)
     def call(self,name,*args):
         self.returned=False;self.vm.reg_write(arm.UC_ARM64_REG_SP,self.stack+0xf000);self.vm.reg_write(reg(30),self.stop)
@@ -70,7 +89,14 @@ class Model(NativeModel):
     def allocate(self,n):return self.call('allocate',n)
     def release(self,p):self.call('release',p)
     def stats(self):
-        self.call('pes13_fex_scratch_pages_snapshot',self.data);return struct.unpack('<15Q',self.vm.mem_read(self.data,120))
+        if 'pes13_fex_scratch_pages_snapshot' in self.symbols:
+            self.call('pes13_fex_scratch_pages_snapshot',self.data)
+            address=self.data
+        else:
+            # Production has no diagnostic consumer; read the actual linked
+            # counters when its snapshot getter has been dead-stripped.
+            address=self.symbols['fx_sp_stats']
+        return struct.unpack('<15Q',self.vm.mem_read(address,120))
     def fill_reserve(self):
         pointers=[self.allocate(n*MIB) for n in (16,16,8,8,8)]
         assert all(pointers) and len(set(pointers))==5

@@ -49,6 +49,11 @@ def main():
     p.add_argument('--nro',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args()
     m=Model(a.elf)
     m.call('wine_nx_runtime_trace',1);m.call('wine_nx_crash_exception',1,1);assert not m.writes
+    if 'fx_launch_debug_begin' in m.symbols:
+        # Production keeps fatal capture disarmed until Debug launch is selected.
+        m.call('fx_crash_bootstrap');m.call('fx_crash_init',1);assert not m.writes
+        m.forbidden.discard(m.symbols.get('snprintf')) # RAM line prefixes only
+        m.call('fx_launch_debug_begin',1)
     nro=a.nro.read_bytes();m.vm.mem_write(m.data,nro[:128]);m.call('fx_crash_bootstrap')
     assert len(m.writes)==10 and m.u32('fx_crash_ready')==1 and m.writes[-1][2]==1
     assert (b'nro_build_id='+nro[0x40:0x60].hex().encode()) in m.writes[-1][1]
@@ -58,6 +63,9 @@ def main():
     m.call('wine_nx_runtime_trace',m.data)
     assert len(m.writes)==11 and m.writes[-1][0]==2048 and m.writes[-1][2]==1
     assert b'RECORD=FEX_STOP' in m.writes[-1][1] and b'failed?forged' in m.writes[-1][1]
+    m.vm.mem_write(m.data,b'[FEX3-NHEAP-FAIL] bytes=10485760 align=16 pages_stage=6 rc=0 reserve_free=0\0')
+    m.call('wine_nx_runtime_trace',m.data)
+    assert b'RECORD=FEX_HEAP_FAILED' in m.writes[-1][1] and b'pages_stage=6' in m.writes[-1][1]
     # No transition worker, printf, heap allocation or stack unwinding needed.
     dump=bytearray(0x340);struct.pack_into('<I',dump,0,0x104)
     for i in range(29):struct.pack_into('<Q',dump,16+8*i,0x1000+i)
@@ -82,6 +90,15 @@ def main():
     m.io_error=0;m.call('wine_nx_crash_exit',2)
     while m.u32('fx_crash_records')<8:m.call('wine_nx_crash_exit',3)
     count=len(m.writes);m.call('wine_nx_crash_exception',1,1);assert len(m.writes)==count
+    if 'fx_launch_debug_begin' in m.symbols:
+        m.set32('fx_crash_records',0)
+        m.call('wine_nx_crash_rust_allocation',3,131077,64,65536,0x12345)
+        assert b'RECORD=RUST_ALLOCATION_FAILED' in m.writes[-1][1]
+        m.call('fx_launch_debug_begin',0);count=len(m.writes)
+        m.call('wine_nx_crash_exception',1,1);m.call('wine_nx_crash_exit',1)
+        m.vm.mem_write(m.data,b'[FEX3-NHEAP-FAIL] bytes=10485760 pages_stage=6\0')
+        m.call('wine_nx_runtime_trace',m.data)
+        assert len(m.writes)==count # switching to normal cannot write to an old armed file
     if 'fx_crash_native_detail' in m.symbols:
         m.set32('fx_crash_length',0);m.set32('fx_tr_enabled',1)
         tail=b'memory allocation of 131077 bytes failed\n';m.vm.mem_write(m.data,tail)

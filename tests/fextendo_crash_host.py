@@ -6,7 +6,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',type=Path,required=True);a=p.parse_args()
     checks=[]
     with tempfile.TemporaryDirectory(prefix='fextendo-crash-') as directory:
-      for defines in ([],['-DFX_PAGE_STORE'],['-DFX_PAGE_STORE','-DFX_THREAD_STACK_RESERVE'],['-DFX_PAGE_STORE','-DFX_THREAD_STACK_RESERVE','-DFX_SCRATCH_PAGES'],['-DFX_PAGE_STORE','-DFX_THREAD_STACK_RESERVE','-DFX_SCRATCH_PAGES=2'],['-DFX_SCRATCH_PAGES=2','-DFX_RUST_HEAP','-DFX_NATIVE_ABORT_DETAIL']):
+      for defines in ([],['-DFX_PAGE_STORE'],['-DFX_PAGE_STORE','-DFX_THREAD_STACK_RESERVE'],['-DFX_PAGE_STORE','-DFX_THREAD_STACK_RESERVE','-DFX_SCRATCH_PAGES'],['-DFX_PAGE_STORE','-DFX_THREAD_STACK_RESERVE','-DFX_SCRATCH_PAGES=2'],['-DFX_SCRATCH_PAGES=2','-DFX_RUST_HEAP','-DFX_NATIVE_ABORT_DETAIL'],['-DFX_SCRATCH_PAGES=2','-DFX_RUST_HEAP','-DFX_SCREEN_DEBUG']):
         binary=Path(directory)/'crash'
         subprocess.run(['gcc','-O1','-g','-std=c11','-D_GNU_SOURCE','-DFX_SCRATCH_RESERVE_VERSION=3','-pthread',*defines,
                         '-fsanitize=address,undefined',str(ROOT/'tests/fextendo_crash.c'),'-o',str(binary)],check=True)

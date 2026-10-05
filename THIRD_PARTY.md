@@ -93,3 +93,8 @@ method are in [assets/fextendo-v3.2/GENERATION.md](assets/fextendo-v3.2/GENERATI
 The new default-display capture uses libnx as a linked dependency and the
 [libnx default-window lifecycle](https://github.com/switchbrew/libnx/blob/master/nx/source/display/default_window.c)
 as a reference. It borrows the application display and preserves libnx ownership.
+
+FEXTendo 0.3.8-r6 includes an adapted libnx virtual-address manager in
+`src/runtime/fextendo_virtmem.c`, retaining switchbrew/libnx authors' ISC notice
+in that source and `licenses/libnx-LICENSE.md.txt`. It adds an exhaustive search
+after random placement fails; source provenance/digest are recorded in the file.

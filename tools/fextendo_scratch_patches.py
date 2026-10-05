@@ -6,8 +6,12 @@ def apply(archive,feature,project,reserve_mib=32,pages=False):
     shutil.copytree(source,dest,dirs_exist_ok=True)
     header=project/'src/fex/horizon_scratch_reserve.h'
     shutil.copy2(header,dest/header.name)
-    if pages:shutil.copy2(project/'src/fex/horizon_scratch_pages.h',dest/'horizon_scratch_pages.h')
-    elif (dest/'horizon_scratch_pages.h').exists():(dest/'horizon_scratch_pages.h').unlink()
+    if pages:
+        for name in ('horizon_scratch_pages.h','horizon_heap_pressure.h'):
+            shutil.copy2(project/'src/fex'/name,dest/name)
+    else:
+        for name in ('horizon_scratch_pages.h','horizon_heap_pressure.h'):
+            (dest/name).unlink(missing_ok=True)
     p=dest/'horizon_jit.c';data=p.read_text()
     changes=[
       ('static void *allocate_scratch(uint64_t requested) {',
@@ -21,14 +25,14 @@ def apply(archive,feature,project,reserve_mib=32,pages=False):
        'const struct pes13_fex_host *pes13_fex_native_host(void) {\n    fx_scratch_reserve_init();')]
     if pages:
         changes += [
+          ('static void *allocate_heap(uint64_t requested, uint64_t alignment) {',
+           '#include "horizon_heap_pressure.h"\n\nstatic void *allocate_heap(uint64_t requested, uint64_t alignment) {'),
           ('    void *raw = malloc((size_t)size + header_size + (size_t)alignment - 1);',
            '    const size_t raw_size = (size_t)size + header_size + (size_t)alignment - 1;\n'
            '    void *raw = malloc(raw_size);\n'
-           '#ifdef __SWITCH__\n'
-           '    if (!raw && raw_size <= SIZE_MAX - (PAGE_BYTES - 1))\n'
-           '        raw = fx_scratch_pages_take((raw_size + PAGE_BYTES - 1) & ~(size_t)(PAGE_BYTES - 1));\n'
-           '#endif'),
+           '    if (!raw) raw = fx_private_heap_recover(raw_size, size, alignment);'),
           ('    free(header->allocation);',
+           '    if (fx_scratch_reserve_return(header->allocation)) return;\n'
            '#ifdef __SWITCH__\n'
            '    if (fx_scratch_pages_release(header->allocation)) return;\n'
            '#endif\n'

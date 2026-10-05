@@ -7,6 +7,10 @@
 #define FX_SPLASH_MS 2400
 #endif
 #define FX_UI_FRAME_NS 16666667ull
+#ifdef FX_SCREEN_DEBUG
+#include "fextendo_debug_console.h"
+#include "fextendo_debug_file.h"
+#endif
 
 static pthread_t fx_ui_thread;
 static pthread_mutex_t fx_ui_lock=PTHREAD_MUTEX_INITIALIZER;
@@ -60,6 +64,9 @@ static int fx_handoff(void) {
     if(!failed && fx_ui_created){
         __atomic_store_n(&fx_ui_stop,1,__ATOMIC_RELEASE);
         pthread_join(fx_ui_thread,NULL);fx_ui_created=0;
+#ifdef FX_SCREEN_DEBUG
+        fx_launch_debug_handoff();
+#endif
         log_line("[FEXTENDO] launcher stopped and framebuffer released before 3D handoff");
         if(!fx_pads_begin_game()){
             pthread_mutex_lock(&fx_ui_lock);fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=1;
@@ -97,6 +104,9 @@ static void *fx_ui_main(void *arg) {
     fx_ui_view.renderer=fx_renderer_selected(RUNTIME_DIR);
     fx_keyboard_options=fx_keyboard_options_load(RUNTIME_DIR);
     fx_ui_view.timestamp=fx_debug_timestamp(RUNTIME_DIR);
+#ifdef FX_SCREEN_DEBUG
+    fx_ui_view.debug_launch=fx_debug_launch(RUNTIME_DIR);
+#endif
     fx_ui_view.last_played=fx_last_played(RUNTIME_DIR);
     fx_ui_view.sound=fx_menu_sound(RUNTIME_DIR);
     fx_ui_view.music=fx_background_music(RUNTIME_DIR);fx_music_set(fx_ui_view.music);fx_sfx_init(RUNTIME_DIR);
@@ -145,7 +155,8 @@ static void *fx_ui_main(void *arg) {
             }
         }
         if(fx_ui_view.screen==FX_HOME){
-            if(dir)fx_ui_view.tile=(fx_ui_view.tile+dir+4)%4;
+            int tiles=fx_ui_view.debug_launch?5:4;
+            if(dir)fx_ui_view.tile=(fx_ui_view.tile+dir+tiles)%tiles;
             if(down&HidNpadButton_B)fx_ui_view.tile=0;
             if(confirm&&fx_ui_view.tile==3){fx_ui_view.screen=FX_CREDITS;fx_ui_view.credit_page=0;}
             else if(confirm&&fx_ui_view.tile==2){fx_ui_view.screen=FX_GAMEPAD;fx_ui_view.row=0;fx_ui_view.message=NULL;fx_ui_view.pad_test=0;}
@@ -165,6 +176,10 @@ static void *fx_ui_main(void *arg) {
                         pthread_mutex_unlock(&fx_ui_lock);continue;
                     }
                     fx_timestamp_arm(fx_ui_view.timestamp,frame_start);
+#ifdef FX_SCREEN_DEBUG
+                    fx_debug_file_begin(fx_ui_view.tile==4);
+                    fx_launch_debug_log("[STARTUP] FEXTendo 0.3.8-r6 / startup console / debug files enabled");
+#endif
                     fx_ui_view.screen=FX_LOADING;fx_ui_view.message="Preparing your game...";pending=1;started=frame_start;
                 }
             }
@@ -221,12 +236,24 @@ static void *fx_ui_main(void *arg) {
         last_frame=frame_start;fx_ui_view.frame=(unsigned)(armTicksToNs(frame_start-ui_origin)/33333333);
         u64 render_start=armGetSystemTick();
         u32 stride;uint32_t *pixels=framebufferBegin(&fb,&stride);
-        if(pixels){struct fx_canvas c={pixels,(int)stride/4,&art};fx_render(&c,&fx_ui_view);framebufferEnd(&fb);}
+        if(pixels){struct fx_canvas c={pixels,(int)stride/4,&art};
+#ifdef FX_SCREEN_DEBUG
+            if(fx_ui_view.screen==FX_LOADING&&fx_launch_debug_startup()){
+                struct fx_debug_snapshot snap={0};fx_launch_debug_snapshot(&snap);fx_debug_draw(&c,&snap);
+            }else
+#endif
+            fx_render(&c,&fx_ui_view);
+            framebufferEnd(&fb);
+        }
         u64 render_ns=armTicksToNs(armGetSystemTick()-render_start);
         render_sum+=render_ns;render_frames++;if(render_ns>render_max)render_max=render_ns;
         pthread_mutex_unlock(&fx_ui_lock);
         u64 elapsed=armTicksToNs(armGetSystemTick()-frame_start);
-        if(elapsed<FX_UI_FRAME_NS)svcSleepThread(FX_UI_FRAME_NS-elapsed);
+        u64 interval=FX_UI_FRAME_NS;
+#ifdef FX_SCREEN_DEBUG
+        if(fx_launch_debug_startup())interval=200000000ull;
+#endif
+        if(elapsed<interval)svcSleepThread(interval-elapsed);
     }
     if(render_frames)log_line("[FEXTENDO] menu frames=%llu mean_draw_present_us=%llu max_draw_present_us=%llu target_hz=60",
         (unsigned long long)render_frames,(unsigned long long)(render_sum/render_frames/1000),(unsigned long long)(render_max/1000));
@@ -256,7 +283,28 @@ static int fx_launcher_start(void) {
         /* Main thread performs SD I/O while the UI keeps the loading spinner moving.
          * No guest can load either D3D9 copy until the complete transaction succeeds. */
         int renderer=fx_ui_view.renderer,selected=fx_ui_view.selected;
-        int ready=fx_apply_renderer(RUNTIME_DIR,renderer)&&fx_apply_preset(RUNTIME_DIR,selected);
+#ifdef FX_SCREEN_DEBUG
+        fx_debug_file_prepare(RUNTIME_DIR);
+        if(wine_nx_launch_debug_active()){
+            if(!__atomic_load_n(&fx_crash_ready,__ATOMIC_ACQUIRE))fx_crash_bootstrap();
+            fx_crash_settings(selected,renderer);
+            fx_launch_debug_log("[CRASH] capture_ready=%u",__atomic_load_n(&fx_crash_ready,__ATOMIC_ACQUIRE));
+            fx_launch_debug_log("[MEMORY] mode=%s base=%llx span=%llx alias=%llx",
+                fx_memory_mode_name(fx_memory_mode(&fx_startup_memory)),
+                (unsigned long long)fx_startup_memory.base,(unsigned long long)fx_startup_memory.size,
+                (unsigned long long)fx_startup_memory.alias);
+            u64 total=0,used=0;Result tr=svcGetInfo(&total,InfoType_TotalMemorySize,CUR_PROCESS_HANDLE,0);
+            Result ur=svcGetInfo(&used,InfoType_UsedMemorySize,CUR_PROCESS_HANDLE,0);
+            fx_launch_debug_log("[STARTUP] applet_type=%d total_mb=%llu used_mb=%llu query_rc=%x/%x",
+                (int)appletGetAppletType(),(unsigned long long)(total>>20),(unsigned long long)(used>>20),tr,ur);
+            fx_launch_debug_log("[STARTUP] preset=%s renderer=%s",fx_preset_names[selected],fx_renderer_names[renderer]);
+        }
+#endif
+        log_line("[STARTUP] verifying renderer files...");
+        int ready=fx_apply_renderer(RUNTIME_DIR,renderer);
+        log_line("[STARTUP] renderer ready=%d; verifying game settings...",ready);
+        if(ready)ready=fx_apply_preset(RUNTIME_DIR,selected);
+        log_line("[STARTUP] game settings ready=%d",ready);
         if(__atomic_load_n(&fx_ui_command,__ATOMIC_ACQUIRE)<0){
             __atomic_store_n(&fx_boot_started,0,__ATOMIC_RELEASE);
             pthread_join(fx_ui_thread,NULL);fx_ui_created=0;return 0;

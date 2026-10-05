@@ -4,8 +4,8 @@
 enum fx_settings_page { FX_SETTINGS_ROOT,FX_SETTINGS_GRAPHICS,FX_SETTINGS_RENDERER,
     FX_SETTINGS_KEYBOARD,FX_SETTINGS_SHORTCUT,FX_SETTINGS_POSITION,FX_SETTINGS_AUDIO,FX_SETTINGS_PAGES };
 static int fx_settings_rows(int page) {
-    static const int counts[FX_SETTINGS_PAGES]={5,4,2,2,FX_KEYBOARD_SHORTCUTS,2,2};
-    return page>=0&&page<FX_SETTINGS_PAGES?counts[page]:5;
+    static const int counts[FX_SETTINGS_PAGES]={6,4,2,2,FX_KEYBOARD_SHORTCUTS,2,2};
+    return page>=0&&page<FX_SETTINGS_PAGES?counts[page]:6;
 }
 static float fx_settings_scroll_target(int row,int page) {
     int max=fx_settings_rows(page)-3;if(max<0)max=0;
@@ -38,7 +38,7 @@ static const char *fx_settings_subtitle(int page) {
     return text[page];
 }
 static const char *fx_settings_label(const struct fx_view *v,int row) {
-    static const char *const root[]={"Graphics preset","Renderer","Keyboard","Audio","Debug timestamp"};
+    static const char *const root[]={"Graphics preset","Renderer","Keyboard","Audio","Debug timestamp","Show debug launch"};
     static const char *const keyboard[]={"Shortcut","Position"};
     static const char *const audio[]={"Menu sounds","Background music"};
     switch(v->settings_page){
@@ -55,7 +55,8 @@ static const char *fx_settings_detail(const struct fx_view *v,int row) {
     switch(v->settings_page){
     case FX_SETTINGS_ROOT:
         return row==0?fx_preset_names[v->selected]:row==1?fx_renderer_names[v->renderer]:
-            row==2?"Shortcut and screen position":row==3?"Menu sounds and background music":"On-screen stopwatch while you play";
+            row==2?"Shortcut and screen position":row==3?"Menu sounds and background music":
+            row==4?"On-screen stopwatch while you play":"Add a tile for troubleshooting startup";
     case FX_SETTINGS_GRAPHICS:return fx_preset_details[row];
     case FX_SETTINGS_RENDERER:return row?"Async shader compilation  /  Alternative renderer":"Default renderer";
     case FX_SETTINGS_KEYBOARD:return row?(fx_keyboard_options.top?"Top":"Bottom"):fx_keyboard_shortcut_names[fx_keyboard_options.shortcut];
@@ -76,6 +77,7 @@ static int fx_settings_selected(const struct fx_view *v,int row) {
 }
 static int fx_settings_toggle(const struct fx_view *v,int row) {
     if(v->settings_page==FX_SETTINGS_ROOT&&row==4)return v->timestamp;
+    if(v->settings_page==FX_SETTINGS_ROOT&&row==5)return v->debug_launch;
     if(v->settings_page==FX_SETTINGS_AUDIO)return row?v->music:v->sound;
     return -1;
 }
@@ -104,6 +106,9 @@ static int fx_settings_choose(struct fx_view *v,const char *root) {
         else{if(!fx_menu_sound_save(root,!v->sound))return 0;v->sound=!v->sound;}
     }else if(page==FX_SETTINGS_ROOT&&row==4){
         if(!fx_debug_timestamp_save(root,!v->timestamp))return 0;v->timestamp=!v->timestamp;
+    }else if(page==FX_SETTINGS_ROOT&&row==5){
+        if(!fx_debug_launch_save(root,!v->debug_launch))return 0;v->debug_launch=!v->debug_launch;
+        if(!v->debug_launch&&v->tile==4)v->tile=0;
     }else return 0;
     v->saved=1;return 1;
 }

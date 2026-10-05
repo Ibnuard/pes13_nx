@@ -23,6 +23,8 @@ static int mock_fsync(int fd) {if(++syncs==sync_fault){errno=ENOSPC;return -1;}r
 int main(int argc,char **argv){
     unsigned char before[5][4096],after[4096];size_t size[5];char path[1024];int i,n,mode;
     assert(argc==2);assert(fx_apply_preset(argv[1],0));
+    /* Verify an unchanged launch performs no transaction writes or renames. */
+    syncs=renames=0;assert(fx_apply_preset(argv[1],0));assert(!syncs&&!renames);
     for(i=0;i<5;i++){snprintf(path,sizeof(path),"%s%s",argv[1],fx_targets[i]);size[i]=fx_read(path,before[i],4096);assert(size[i]);}
     for(mode=0;mode<3;mode++)for(n=1;n<=(mode==2?6:11);n++){
         fault_at=crash_at=sync_fault=renames=syncs=0;

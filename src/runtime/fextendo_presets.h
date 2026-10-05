@@ -148,6 +148,14 @@ static int fx_debug_timestamp_save(const char *root,int on) {
     char p[768];snprintf(p,sizeof(p),"%s/launcher/debug-timestamp.txt",root);
     return fx_write(p,on?"1\n":"0\n",2);
 }
+static int fx_debug_launch(const char *root) {
+    char p[768],b[2];snprintf(p,sizeof(p),"%s/launcher/debug-launch.txt",root);
+    return fx_read(p,b,2)==2&&b[0]=='1'&&b[1]=='\n';
+}
+static int fx_debug_launch_save(const char *root,int on) {
+    char p[768];snprintf(p,sizeof(p),"%s/launcher/debug-launch.txt",root);
+    return fx_write(p,on?"1\n":"0\n",2);
+}
 static int fx_apply_preset(const char *root,int selected) {
     unsigned char data[5][4096],mask=0;size_t sizes[5];
     char path[5][768],tmp[5][800],old[5][800],source[768],journal[768],journal_tmp[800];
@@ -182,6 +190,14 @@ static int fx_apply_preset(const char *root,int selected) {
             if(!strstr((char*)data[i],"d3d9.presentInterval = 1\n"))return 0;
         } else {data[i][0]='0'+selected;data[i][1]='\n';sizes[i]=2;}
     }
+    /* An ordinary launch verifies settings without rewriting five files and
+     * their transaction journal. Preserve canonical controller edits above. */
+    int unchanged=1;
+    for(i=0;i<5;i++){
+        unsigned char existing[4096];
+        if(fx_read(path[i],existing,sizeof(existing))!=sizes[i]||memcmp(existing,data[i],sizes[i]))unchanged=0;
+    }
+    if(unchanged)return 1;
     for(i=0;i<5;i++)if(!fx_write(tmp[i],data[i],sizes[i]))goto stage_failed;
     /* Remove only stale backups left after a committed transaction. */
     for(i=0;i<5;i++)if(unlink(old[i])&&errno!=ENOENT)goto stage_failed;

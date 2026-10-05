@@ -25,6 +25,14 @@ static VirtmemReservation *virtmemAddReservation(void *,size_t);
 static void virtmemRemoveReservation(VirtmemReservation *);
 static Result svcMapMemory(void *,void *,size_t);
 static Result svcUnmapMemory(void *,void *,size_t);
+#define FX_SP_CODE_ALIAS 1
+#define Perm_Rw 3
+static int envIsSyscallHinted(unsigned);
+static unsigned envGetOwnProcessHandle(void){return 0x1234;}
+static void *virtmemFindCodeMemory(size_t,size_t);
+static Result svcMapProcessCodeMemory(unsigned,uintptr_t,uintptr_t,size_t);
+static Result svcUnmapProcessCodeMemory(unsigned,uintptr_t,uintptr_t,size_t);
+static Result svcSetProcessMemoryPermission(unsigned,uintptr_t,size_t,unsigned);
 #define aligned_alloc test_alloc
 #define free test_free
 #include "../src/fex/horizon_scratch_pages.h"
@@ -35,7 +43,15 @@ static struct allocation allocations[FX_SP_PIECES];
 static pthread_mutex_t alloc_lock=PTHREAD_MUTEX_INITIALIZER,vm_lock=PTHREAD_MUTEX_INITIALIZER;
 static unsigned limit=1024*1024,remaining=~0u,used,map_calls,unmap_calls,fail_map,fail_unmap;
 static int no_va,no_reservation;
+static int code_disabled,no_stack_va;
+static unsigned permission_calls,fail_permission;
 static void *last_va;static size_t last_size;
+#ifdef FX_TEST_VA_REUSE
+static void (*after_vm_unlock)(void);
+static int reuse_on_release;
+static void *reuse_va;
+static size_t reuse_size;
+#endif
 static struct allocation *find(void *p){for(unsigned i=0;i<FX_SP_PIECES;i++)if(allocations[i].p==p)return &allocations[i];assert(0);return NULL;}
 static void *test_alloc(size_t alignment,size_t n){
     assert(alignment==4096&&n%4096==0);pthread_mutex_lock(&alloc_lock);
@@ -51,17 +67,39 @@ static void test_free(void *p){
     assert(!munmap(a->p,a->size));close(a->fd);memset(a,0,sizeof(*a));used--;pthread_mutex_unlock(&alloc_lock);
 }
 static void virtmemLock(void){pthread_mutex_lock(&vm_lock);}
-static void virtmemUnlock(void){pthread_mutex_unlock(&vm_lock);}
+static void virtmemUnlock(void){
+    pthread_mutex_unlock(&vm_lock);
+#ifdef FX_TEST_VA_REUSE
+    if(after_vm_unlock&&reuse_va){void (*hook)(void)=after_vm_unlock;after_vm_unlock=NULL;hook();}
+#endif
+}
 static void *virtmemFindStack(size_t n,size_t guard){
-    assert(guard==4096);if(no_va)return NULL;
+    assert(guard==4096);if(no_va||no_stack_va)return NULL;
+#ifdef FX_TEST_VA_REUSE
+    if(reuse_va){assert(n==reuse_size);last_va=reuse_va;last_size=n;reuse_va=NULL;return last_va;}
+#endif
     last_va=mmap(NULL,n,PROT_NONE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);assert(last_va!=MAP_FAILED);last_size=n;return last_va;
+}
+static int envIsSyscallHinted(unsigned svc){assert(svc==0x73||svc==0x77||svc==0x78);return !code_disabled;}
+static void *virtmemFindCodeMemory(size_t n,size_t guard){
+    int saved=no_stack_va;no_stack_va=0;void *p=virtmemFindStack(n,guard);no_stack_va=saved;return p;
 }
 static VirtmemReservation *virtmemAddReservation(void *p,size_t n){
     assert(p==last_va&&n==last_size);
     if(no_reservation){assert(!munmap(p,n));return NULL;}
     VirtmemReservation *r=malloc(sizeof(*r));assert(r);*r=(VirtmemReservation){p,n};return r;
 }
-static void virtmemRemoveReservation(VirtmemReservation *r){assert(!munmap(r->address,r->size));free(r);}
+static void virtmemRemoveReservation(VirtmemReservation *r){
+    assert(!munmap(r->address,r->size));
+#ifdef FX_TEST_VA_REUSE
+    if(reuse_on_release){
+        reuse_on_release=0;reuse_size=r->size;
+        reuse_va=mmap(r->address,r->size,PROT_NONE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
+        assert(reuse_va==r->address);
+    }
+#endif
+    free(r);
+}
 static Result svcMapMemory(void *dst,void *src,size_t n){
     pthread_mutex_lock(&alloc_lock);unsigned call=++map_calls;
     if(call==fail_map){pthread_mutex_unlock(&alloc_lock);return 0xd401;}
@@ -75,6 +113,20 @@ static Result svcUnmapMemory(void *dst,void *src,size_t n){
     struct allocation *a=find(src);assert(a->size==n&&a->alias==dst);
     assert(mmap(dst,n,PROT_NONE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED,-1,0)==dst);
     assert(!mprotect(src,n,PROT_READ|PROT_WRITE));a->alias=NULL;pthread_mutex_unlock(&alloc_lock);return 0;
+}
+static Result svcMapProcessCodeMemory(unsigned h,uintptr_t dst,uintptr_t src,size_t n){
+    assert(h==0x1234);Result r=svcMapMemory((void *)dst,(void *)src,n);
+    if(!r)assert(!mprotect((void *)dst,n,PROT_NONE));
+    return r;
+}
+static Result svcUnmapProcessCodeMemory(unsigned h,uintptr_t dst,uintptr_t src,size_t n){
+    assert(h==0x1234);return svcUnmapMemory((void *)dst,(void *)src,n);
+}
+static Result svcSetProcessMemoryPermission(unsigned h,uintptr_t dst,size_t n,unsigned perm){
+    assert(h==0x1234&&perm==Perm_Rw);
+    unsigned call=__atomic_add_fetch(&permission_calls,1,__ATOMIC_RELAXED);
+    if(call==fail_permission)return 0xd401;
+    assert(!mprotect((void *)dst,n,PROT_READ|PROT_WRITE));return 0;
 }
 static void empty(void){assert(!used&&!fx_sp_held&&!fx_sp_stats[3]&&!fx_sp_stats[5]&&!fx_sp_stats[6]);}
 static void contents(void *p,size_t n,unsigned char v){
@@ -93,6 +145,21 @@ static void *concurrent(void *arg){
 }
 int main(void){
     assert(!fx_scratch_pages_take(0)&&!fx_scratch_pages_take(SIZE_MAX));empty();
+    struct fx_sp_failure reason;
+    assert(!fx_scratch_pages_take_report(0,&reason)&&reason.stage==FX_SP_INVALID_SIZE);
+    remaining=0;assert(!fx_scratch_pages_take_report(4096,&reason)&&reason.stage==FX_SP_SOURCE_ALLOC);empty();remaining=~0u;
+    no_va=1;assert(!fx_scratch_pages_take_report(4096,&reason)&&reason.stage==FX_SP_VIRTUAL_RANGE);empty();no_va=0;
+    no_reservation=1;assert(!fx_scratch_pages_take_report(4096,&reason)&&reason.stage==FX_SP_RESERVATION);empty();no_reservation=0;
+    fail_map=map_calls+1;assert(!fx_scratch_pages_take_report(4096,&reason)&&reason.stage==FX_SP_MAP&&reason.result==0xd401);empty();fail_map=0;
+    no_stack_va=1;void *wide=fx_scratch_pages_take(16*1024*1024);assert(wide);contents(wide,16*1024*1024,0x77);fx_scratch_pages_release(wide);empty();no_stack_va=0;
+    code_disabled=1;wide=fx_scratch_pages_take(4096);assert(wide);fx_scratch_pages_release(wide);empty();code_disabled=0;
+    fail_permission=permission_calls+3;
+    assert(!fx_scratch_pages_take_report(16*1024*1024,&reason)&&reason.stage==FX_SP_PERMISSION);empty();fail_permission=0;
+    fail_permission=permission_calls+3;fail_unmap=unmap_calls+3;
+    assert(!fx_scratch_pages_take_report(16*1024*1024,&reason)&&reason.stage==FX_SP_PERMISSION);
+    assert(used==16&&fx_sp_stats[10]==1);fail_permission=fail_unmap=0;
+    for(unsigned i=0;i<FX_SP_SLOTS;i++)if(fx_sp_slots[i].state==FX_SP_QUARANTINE)assert(fx_sp_dispose(&fx_sp_slots[i]));
+    empty();fx_sp_stats[10]=0;
     /* Arbitrary page-sized CPU buffers, including non-power-of-two tails.
      * One MiB used to fail unconditionally in the fallback; so did any size
      * below 8 MiB or fragmentation below 64 KiB. */

@@ -8,10 +8,21 @@ def replace(data, old, new):
 def apply(source, project):
     directory = source/'dlls/ntdll/unix'
     changed = set()
-    for name in ('horizon_page_store.h', 'horizon_store_backing.h'):
+    for name in ('horizon_page_store.h', 'horizon_store_backing.h','horizon_pool_pressure.h'):
         shutil.copy2(project/'src/runtime'/name, directory/name)
         changed.add('dlls/ntdll/unix/'+name)
     p = directory/'horizon.c'; s = p.read_text()
+    s=replace(s,'static unsigned long long backing_direct_allocs;', '''static unsigned long long backing_direct_allocs;
+#include "horizon_pool_pressure.h"
+size_t wine_nx_release_idle_backing_pages(void)
+{
+    /* Allocation can occur below Wine's mapping lock. Never wait or recurse
+     * on that lock during recovery. Another thread may retry later. */
+    if (pthread_mutex_trylock(&mapping_mutex)) return 0;
+    size_t released=horizon_pages_trim(&backing_pages);
+    pthread_mutex_unlock(&mapping_mutex);
+    return released;
+}''')
     s = replace(s, 'struct horizon_backing\n{\n    void *heap_addr;',
         '#include "horizon_page_store.h"\n\nstruct horizon_backing\n{\n    struct horizon_page_store pages;')
     s = replace(s, 'static void free_backing( struct horizon_backing *backing, BOOL write_back )',
@@ -92,4 +103,28 @@ def apply(source, project):
         '            if (stop - offset > available) stop = offset + available;')
     assert 'file->data' not in s
     p.write_text(s); changed.add('dlls/ntdll/unix/horizon_memfile.h')
+    p=directory/'horizon_pool.h';s=p.read_text()
+    start=s.index('        if (!arena->memory)\n        {',s.index('static inline void *horizon_pages_alloc'))
+    end=s.index('        if (arena->free_pages < pages)',start)
+    s=s[:start]+'        if (!arena->memory) continue;\n'+s[end:]
+    anchor='''    return NULL;
+}
+
+/* Returns zero for a direct allocation'''
+    s=replace(s,anchor,'''    /* Search existing arenas before allocating a new one. A trimmed hole
+     * must not hide usable pages in a later arena when libc is exhausted. */
+    for(i=0;i<HORIZON_POOL_ARENAS;i++) {
+        struct horizon_page_arena *arena=&pool->arenas[i];
+        if(arena->memory)continue;
+        void *p=aligned_alloc(HORIZON_POOL_PAGE,HORIZON_POOL_PAGES*HORIZON_POOL_PAGE);
+        if(!p)return NULL;
+        arena->memory=p;arena->free_pages=HORIZON_POOL_PAGES-pages;
+        memset(arena->used,0,sizeof(arena->used));memset(arena->used,1,pages);
+        pool->misses++;pool->hits++;return p;
+    }
+    return NULL;
+}
+
+/* Returns zero for a direct allocation''')
+    p.write_text(s);changed.add('dlls/ntdll/unix/horizon_pool.h')
     return changed

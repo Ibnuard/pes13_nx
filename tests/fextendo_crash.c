@@ -73,6 +73,10 @@ static void fsFileClose(FsFile *f){assert(f->handle==42);fs_calls++;}
 static uint64_t armGetSystemTick(void){return clock_tick;}
 static uint64_t armTicksToNs(uint64_t n){return n*1000000000/19200000;}
 static unsigned threadGetCurHandle(void){return 0x1234;}
+#ifdef FX_SCREEN_DEBUG
+static int debug_selected;
+static int wine_nx_launch_debug_active(void){return debug_selected;}
+#endif
 #ifdef FX_NATIVE_ABORT_DETAIL
 #include "../src/runtime/fextendo_transition_trace.h"
 #endif
@@ -85,16 +89,22 @@ static void reboot(void){
     fail_write=fail_rotate=fail_open=fail_create=reenter=0;
     fx_crash_bootstrap();
 }
-static void contains(const char *text){assert(memmem(disk,sizeof(disk),text,strlen(text)));}
+static void contains(const char *text){if(!memmem(disk,sizeof(disk),text,strlen(text))){fprintf(stderr,"Missing crash text: %s\n",text);assert(0);}}
 static void *concurrent(void *unused){(void)unused;for(unsigned i=0;i<1000;i++)wine_nx_crash_exit(42);return NULL;}
 int main(void){
     _Static_assert(offsetof(ThreadExceptionDump,pc)==0x110,"real ABI PC");
     _Static_assert(offsetof(ThreadExceptionDump,far)==0x330,"real ABI FAR");
     fx_crash_failure_line((void *)1);wine_nx_crash_exception((void *)1,0);assert(!fs_calls);
+#ifdef FX_SCREEN_DEBUG
+    fx_crash_bootstrap();fx_crash_init((void *)1);assert(!fs_calls);
+    debug_selected=1;
+#endif
     memcpy(nro+0x10,"NRO0",4);for(unsigned i=0;i<32;i++)nro[0x40+i]=(unsigned char)i;
     reboot();assert(fx_crash_ready&&flushes==1&&writes==10);
 #if FX_SCRATCH_RESERVE_VERSION == 3
-#if defined(FX_RUST_HEAP)
+#if defined(FX_SCREEN_DEBUG)
+    contains("Candidate=production-0.3.8-r6-debug-launch");
+#elif defined(FX_RUST_HEAP)
     contains("Candidate=high-native-heap-v1");
 #elif FX_SCRATCH_PAGES >= 2
     contains("Candidate=high-fragmented-heap-v1");
@@ -168,6 +178,8 @@ int main(void){
     assert(fx_crash_begin("NATIVE_CONTEXT"));fx_crash_native_detail(1);fx_crash_end();
     contains("trace_busy=0x0000000000000001");fx_tr_lock=0;
 #endif
+    reboot();fx_crash_failure_line("[FEX3-NHEAP-FAIL] bytes=10485760 align=16 pages_stage=6 rc=0 reserve_free=0");
+    contains("RECORD=FEX_HEAP_FAILED");contains("pages_stage=6");
     reboot();wine_nx_crash_rust_allocation(3,131077,64,65536,0x12345);
     contains("RECORD=RUST_ALLOCATION_FAILED");contains("old_size=0x0000000000010000");
     puts("PASS: direct fatal flush, full context, no routine writes, rotation, bounded concurrent/reentrant failure, I/O errors and original termination semantics");

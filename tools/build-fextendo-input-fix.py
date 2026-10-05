@@ -37,7 +37,9 @@ def main():
     p.add_argument('--thread-stack-reserve',action='store_true',help='Bounded fallback for native libnx stack allocation under fragmentation')
     p.add_argument('--scratch-pages',action='store_true',help='Recover FEX scratch, lookup and private heap allocations from fragmented native pages')
     p.add_argument('--rust-heap',action='store_true',help='Native Rust CPU-heap fallback plus bounded fatal call-stack/text evidence')
+    p.add_argument('--production',action='store_true',help='Keep memory fixes; normal launch quiet, debug launch with startup console and error files')
     a = p.parse_args()
+    assert not a.production or (a.rust_heap and a.scratch_reserve_mib==64),'Production retains the full-match memory checkpoint'
     assert not a.scratch_reserve or a.transition_trace,'Keep diagnostic evidence in the scratch candidate'
     assert a.scratch_reserve_mib==32 or a.scratch_reserve,'Capacity requires the scratch-reserve feature'
     assert not a.crash_log or a.transition_trace,'Keep transition context with the crash-log candidate'
@@ -84,6 +86,8 @@ def main():
         header=t.extractfile(wine_root+'/'+name).read()
         assert hashlib.sha256(header).hexdigest()=='6c64279185e3a37bd3c9f82c250d3c0a394b9304843a9aab0691a639730a54cc'
         (source/name).write_bytes(header)
+        name='dlls/ntdll/unix/horizon_pool.h'
+        (source/name).write_bytes(t.extractfile(wine_root+'/'+name).read())
     # Files added by keyboard-v4 were previously untouched; restore them from
     # the pinned upstream tar, then apply the archived exact, reviewed diff.
     for name in baseline['generated_sources']:
@@ -115,12 +119,15 @@ def main():
     paths.add('src/runtime/fextendo_keyboard_options.h')
     paths.add('src/runtime/fextendo_settings.h')
     paths.add('src/runtime/fextendo_diagnostics.h')
+    if a.production:paths.update(('src/runtime/fextendo_launch_debug.h','src/runtime/fextendo_debug_console.h',
+        'src/runtime/fextendo_launch_memory.h','src/runtime/fextendo_startup_heap.h','src/runtime/fextendo_debug_file.h',
+        'src/runtime/fextendo_virtmem.c'))
     if a.transition_trace:
         paths.update(('src/runtime/fextendo_transition_trace.h','src/runtime/fextendo_transition_alloc.h'))
     if a.crash_log:paths.add('src/runtime/fextendo_crash.h')
     if a.live_freeze:paths.update(('src/runtime/fextendo_live_trace.h','src/runtime/fextendo_live_threads.h'))
     if a.thread_stack_reserve:paths.add('src/runtime/fextendo_thread_stack.h')
-    if a.rust_heap:paths.add('src/runtime/fextendo_rust_heap.h')
+    if a.rust_heap:paths.update(('src/runtime/fextendo_rust_heap.h','src/runtime/fextendo_mesa_heap.h'))
     for name in paths:shutil.copy2(ROOT/name,feature/Path(name).name)
     cmake=source/'wine-nx-probe/CMakeLists.txt';data=cmake.read_text()
     import re
@@ -170,6 +177,7 @@ def main():
         runtime.write_text(data.replace(anchor,anchor+'\n    fx_thread_stack_init();'))
         cmake.write_text(cmake.read_text()+'\ntarget_link_options(wine-nx-runtime PRIVATE -Wl,--wrap=threadCreate -Wl,--wrap=__libnx_aligned_alloc -Wl,--wrap=__libnx_free)\n')
     rust_binding={}
+    mesa_binding={}
     if a.rust_heap:
         from fextendo_rust_heap_patches import apply as rust_apply
         rust_binding=rust_apply(cache/'mesa-vulkan/install/opt/devkitpro/portlibs/switch/lib/libnak_rs.a',feature,cmake)
@@ -180,11 +188,25 @@ def main():
         anchor='#include "fextendo_crash.h"'
         assert data.count(anchor)==1
         runtime.write_text(data.replace(anchor,anchor+'\n#include "fextendo_rust_heap.h"'))
+        from fextendo_mesa_heap_patches import apply as mesa_apply
+        mesa_binding=mesa_apply(cache/'mesa-vulkan/install/opt/devkitpro/portlibs/switch/lib/libmesa_util.a',feature,cmake,Path('/opt/devkitpro'))
+        runtime.write_text(runtime.read_text()+'\n#include "fextendo_mesa_heap.h"\n')
+    if a.production:
+        # Restore the pre-main image guard before injecting the rejection path.
+        assert sha(ROOT/'src/runtime/pes13_preload.c')=='6bb8ecff9fea7e0e2b1e10a4a04b36705155b159d4584088257294a5b192f225'
+        shutil.copy2(ROOT/'src/runtime/pes13_preload.c',source/'wine-nx-probe/source/pes13_preload.c')
+        from fextendo_production_patches import apply as production_apply
+        generated.update(production_apply(source))
+        # All libnx/Wine/FEX users retain ONE reservation manager. Defining the
+        # complete virtmem ABI here prevents the archive's virtmem.o extraction.
+        cmake.write_text(cmake.read_text()+'\ntarget_sources(wine-nx-runtime PRIVATE "'+str(feature/'fextendo_virtmem.c')+'")\n')
     features={n:sha(ROOT/n) for n in sorted(paths)}
     if a.scratch_reserve:features['src/fex/horizon_scratch_reserve.h']=sha(ROOT/'src/fex/horizon_scratch_reserve.h')
-    if a.scratch_pages:features['src/fex/horizon_scratch_pages.h']=sha(ROOT/'src/fex/horizon_scratch_pages.h')
+    if a.scratch_pages:
+        for name in ('horizon_scratch_pages.h','horizon_heap_pressure.h'):
+            features['src/fex/'+name]=sha(ROOT/'src/fex'/name)
     if a.page_store:
-        for name in ('horizon_page_store.h','horizon_store_backing.h'):
+        for name in ('horizon_page_store.h','horizon_store_backing.h','horizon_pool_pressure.h'):
             features['src/runtime/'+name]=sha(ROOT/'src/runtime'/name)
     spec=importlib.util.spec_from_file_location('runtime_builder',ROOT/'tools/build-fex-runtime.py')
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
@@ -207,15 +229,27 @@ def main():
     report['live_freeze_version']=1 if a.live_freeze else 0
     report['page_store_version']=1 if a.page_store else 0
     report['thread_stack_reserve_version']=1 if a.thread_stack_reserve else 0
-    report['scratch_pages_version']=2 if a.scratch_pages else 0
+    report['scratch_pages_version']=5 if a.scratch_pages else 0
+    report['virtmem_exhaustive_version']=1 if a.production else 0
+    report['private_heap_reserve_version']=2 if a.scratch_pages else 0
+    report['idle_pool_recovery_version']=1 if a.page_store else 0
+    report['mesa_heap_binding']=mesa_binding
     report['rust_heap_version']=1 if a.rust_heap else 0
     report['rust_heap_binding']=rust_binding
-    report['scratch_reserve_version']=(3 if a.scratch_reserve_mib==64 else 2) if a.scratch_reserve else 0
+    report['production_screen_debug']=a.production
+    report['diagnostic_file_writes']='debug-launch-only' if a.production else True
+    report['debug_console_scope']='launcher-startup-only' if a.production else None
+    report['debug_gameplay_overlay']=False if a.production else None
+    report['launch_memory_gate']=a.production
+    report['launch_memory_gate_version']=3 if a.production else 0
+    report['scratch_reserve_version']=4 if a.scratch_reserve else 0
     report['scratch_reserve_mib']=a.scratch_reserve_mib if a.scratch_reserve else 0
     report['native_fex_sources']=fex_sources
     if a.scratch_reserve:report['build_scripts']['tools/fextendo_scratch_patches.py']=sha(ROOT/'tools/fextendo_scratch_patches.py')
     if a.page_store:report['build_scripts']['tools/fextendo_page_store_patches.py']=sha(ROOT/'tools/fextendo_page_store_patches.py')
     if a.rust_heap:report['build_scripts']['tools/fextendo_rust_heap_patches.py']=sha(ROOT/'tools/fextendo_rust_heap_patches.py')
+    if a.rust_heap:report['build_scripts']['tools/fextendo_mesa_heap_patches.py']=sha(ROOT/'tools/fextendo_mesa_heap_patches.py')
+    if a.production:report['build_scripts']['tools/fextendo_production_patches.py']=sha(ROOT/'tools/fextendo_production_patches.py')
     (work/'build-report.json').write_text(json.dumps(report,indent=2)+'\n')
     if a.prepare_only:return
     env=dict(os.environ,DEVKITPRO=str(sdk),DEVKITA64=str(sdk/'devkitA64'),
@@ -236,7 +270,7 @@ def main():
          '-DPES13_LIBNX_EXCEPTION_OBJECT='+str(exception),'-DCMAKE_BUILD_TYPE=Release'])
     run(['cmake','--build',build,'--target','wine-nx-runtime','-j',a.jobs])
     nro=work/'pes13-fex.nro';nacp=work/'pes13-fex.nacp'
-    run([sdk/'tools/bin/nacptool','--create','PES13 - FEXTendo','AndroSwitch Project','0.3.8-test',nacp])
+    run([sdk/'tools/bin/nacptool','--create','PES13 - FEXTendo','AndroSwitch Project','0.3.8-r6' if a.production else '0.3.8-test',nacp])
     run([sdk/'tools/bin/elf2nro',build/'wine-nx-runtime.elf',nro,'--nacp='+str(nacp),
          '--icon='+str(archive/'source/assets/fextendo-v3/nro-icon.jpg')])
     assert deps==module.native_dependency_receipt(mesa,sdk)

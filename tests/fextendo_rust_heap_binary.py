@@ -74,7 +74,7 @@ def main():
     routes=linked_routes(a.elf)
     before=Model(a.before);before.host();before.limit=65536
     assert not before.call(PREFIX+SHIMS['alloc'][0],131077,64)
-    m=Model(a.elf);m.host();m.limit=65536;m.alias=0x2000001000
+    m=Model(a.elf);m.host();owners=m.full_reserve();m.limit=65536;m.alias=0x2000001000
     p=m.rust('alloc',131077,64);assert p>2**32 and p%64==0;m.check_bytes(p,131077)
     m.rust('dealloc',p,131077,64);m.clean()
     for alignment in (1,16,64,4096,65536,2*MIB):
