@@ -27,7 +27,7 @@ jobs:
         run: python3 -m pip install -r requirements.txt
       - name: Test release separation
         run: python3 -m unittest discover -s tests -p 'test_release_*.py' -v
-      - name: Require approved patch runtime and set version
+      - name: Verify pinned patch runtime and set version
         id: version
         run: python3 tools/patch_release.py version
       - name: Download pinned patch runtime

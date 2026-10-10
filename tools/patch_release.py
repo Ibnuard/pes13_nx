@@ -21,7 +21,7 @@ LOCK = ROOT / 'release/patch/runtime-lock.json'
 def load_lock(path=LOCK):
     value = json.loads(path.read_text())
     if value.get('channel') != 'patch' or value.get('approved') is not True:
-        raise ValueError('Patch runtime is not approved. Build and pin a patch-only input; original runtime is never substituted.')
+        raise ValueError('Patch runtime input is not prepared. Build, verify and pin a patch-only input; original runtime is never substituted.')
     if (not re.fullmatch(r'runtime-patch-[A-Za-z0-9._-]+', value.get('tag', ''))
             or not re.fullmatch(r'[A-Za-z0-9._-]+\.zip', value.get('asset', ''))
             or not re.fullmatch(r'[a-f0-9]{64}', value.get('sha256', ''))
@@ -56,7 +56,7 @@ def check_tag(tag):
 def asset_names(tag):
     check_tag(tag)
     p = profile()
-    return {f'FEXTendo-PES13-{tag}-sd.zip', p['nro'], p['nsp'], 'manifest.json'}
+    return {f'FEXTendo-PES13-{tag}-sd.zip', p['nro'], p['nsp'], 'manifest-patch.json'}
 
 
 def version():
@@ -136,6 +136,7 @@ def assemble(runtime, output, tag, commit):
         'drive_c/users/steamuser/Documents/KONAMI/Pro Evolution Soccer 2013/save/')}
     manifest = {'channel': 'patch', 'profile': p, 'package_version': tag, 'source_commit': commit,
                 'runtime_version': lock['runtime_version'], 'runtime_sha256': lock['sha256'],
+                'prerelease': lock.get('prerelease', True), 'known_issues': lock.get('known_issues', []),
                 'game_included': False, 'checks': checks,
                 'files': {n:sha(d) for n,d in sorted(files.items())}, 'directories': sorted(directories)}
     files['manifest.json'] = encoded(manifest)
@@ -149,25 +150,25 @@ def assemble(runtime, output, tag, commit):
             raise ValueError('Patch save/game directories are missing')
     (output / p['nro']).write_bytes(files[p['prefix'] + p['nro']])
     (output / p['nsp']).write_bytes(files[p['nsp']])
-    (output / 'manifest.json').write_bytes(files['manifest.json'])
-    (output / 'SHA256SUMS').write_text(''.join(sha(path.read_bytes())+'  '+path.name+'\n'
+    (output / 'manifest-patch.json').write_bytes(files['manifest.json'])
+    (output / 'SHA256SUMS-patch.txt').write_text(''.join(sha(path.read_bytes())+'  '+path.name+'\n'
         for path in sorted(output.iterdir()) if path.is_file()))
 
 
 def validate_assets(folder, tag, commit):
     expected = asset_names(tag)
     actual = {p.name for p in folder.iterdir()}
-    if actual != expected | {'SHA256SUMS'}:
+    if actual != expected | {'SHA256SUMS-patch.txt'}:
         raise ValueError('Patch release asset set mismatch')
     sums = {}
-    for line in (folder / 'SHA256SUMS').read_text().splitlines():
+    for line in (folder / 'SHA256SUMS-patch.txt').read_text().splitlines():
         digest, name = line.split('  ', 1)
         if name not in expected or name in sums or not re.fullmatch(r'[a-f0-9]{64}', digest):
             raise ValueError('Invalid patch checksum entry')
         sums[name] = digest
     if set(sums) != expected or any(sha((folder/n).read_bytes()) != h for n,h in sums.items()):
         raise ValueError('Patch release checksum mismatch')
-    value = json.loads((folder / 'manifest.json').read_text())
+    value = json.loads((folder / 'manifest-patch.json').read_text())
     if (value.get('channel') != 'patch' or value.get('profile') != profile()
             or value.get('package_version') != tag or value.get('source_commit') != commit):
         raise ValueError('Patch artifact belongs to another channel, tag or commit')
@@ -207,10 +208,13 @@ def publish(folder, tag, commit):
                 'cache and repair runtime from the original `pes13-fex` installation.\n\n'
                 'Requires the verified **fxtmem-v1** kernel/loader and its 39-bit low-window forwarder. '
                 'Game/Kitserver assets are supplied by the user. Runtime: '+value['runtime_version']+
-                '. Package checks do not replace device testing.\n\n'+notes['body'])
+                '. Package checks do not replace device testing.\n\n')
+        if value.get('known_issues'):
+            body += '**Known issues in this patch preview:**\n' + ''.join('- '+issue+'\n' for issue in value['known_issues']) + '\n'
+        body += notes['body']
         release = gh('api', prefix + '/releases', '--method', 'POST', data={
             'tag_name':tag, 'target_commitish':commit, 'name':'PES13 Patch FEXTendo '+tag,
-            'body':body, 'draft':True, 'prerelease':False, 'make_latest':'false'})
+            'body':body, 'draft':True, 'prerelease':value.get('prerelease', True), 'make_latest':'false'})
     subprocess.run(['gh', 'release', 'upload', tag, '--repo', repo, '--clobber',
                     *[str(p) for p in sorted(folder.iterdir())]], check=True)
     result = gh('api', prefix+'/releases/'+str(release['id']), '--method', 'PATCH',
