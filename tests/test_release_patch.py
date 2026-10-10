@@ -18,6 +18,9 @@ import release_ci as original
 spec = importlib.util.spec_from_file_location('prepare_patch_catalog', ROOT/'tools/prepare-patch-runtime-catalog.py')
 catalog_tool = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(catalog_tool)
+pack_spec = importlib.util.spec_from_file_location('package_patch_runtime', ROOT/'tools/package-patch-runtime.py')
+pack_tool = importlib.util.module_from_spec(pack_spec)
+pack_spec.loader.exec_module(pack_tool)
 
 
 class PatchReleaseTests(unittest.TestCase):
@@ -63,6 +66,30 @@ class PatchReleaseTests(unittest.TestCase):
         self.assertEqual(identity.title_id() & 0xfff, 0)
         with self.assertRaises(ValueError): release.asset_names('v0.3.9-r10')
         self.assertIn('pes13-patch-fex.nro', release.asset_names('patch-v0.3.9-r10'))
+        self.assertTrue(all('patch' in name.lower() for name in
+                            release.asset_names('patch-v0.3.9-r10') | {'SHA256SUMS-patch.txt'}))
+
+    def test_packaged_presets_keep_bindings_with_xinput_and_no_frame_skip(self):
+        import binascii, struct
+        for path in (ROOT/'config/fextendo/presets').glob('*.dat'):
+            before = path.read_bytes()
+            after = pack_tool.preset(before)
+            self.assertEqual(before[:12], after[:12])
+            self.assertEqual(before[16:], after[16:])
+            flags = struct.unpack_from('<H', after, 14)[0]
+            self.assertEqual(flags & 0x020b, 0x0209)
+            crc_data = bytearray(after); crc_data[12:14] = b'\0\0'
+            self.assertEqual(struct.unpack_from('<H', after, 12)[0], ~binascii.crc_hqx(crc_data, 0) & 0xffff)
+
+    def test_runtime_stage_rejects_changed_input(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); path = root/'test.dll'
+            path.write_bytes(b'expected')
+            digest = release.sha(path.read_bytes())
+            self.assertEqual(pack_tool.checked(root, path.name, digest), b'expected')
+            path.write_bytes(b'changed')
+            with self.assertRaisesRegex(ValueError, 'Changed input'):
+                pack_tool.checked(root, path.name, digest)
 
     def test_original_repair_catalog_is_rejected(self):
         with self.assertRaises(ValueError):
@@ -113,9 +140,9 @@ class PatchReleaseTests(unittest.TestCase):
             def populate(channel='patch'):
                 for name in release.asset_names(tag):
                     data = release.encoded({'channel':channel,'profile':identity.profile(),
-                        'package_version':tag,'source_commit':commit}) if name=='manifest.json' else b'fixture'
+                        'package_version':tag,'source_commit':commit}) if name=='manifest-patch.json' else b'fixture'
                     (root/name).write_bytes(data)
-                (root/'SHA256SUMS').write_text(''.join(release.sha((root/n).read_bytes())+'  '+n+'\n'
+                (root/'SHA256SUMS-patch.txt').write_text(''.join(release.sha((root/n).read_bytes())+'  '+n+'\n'
                     for n in sorted(release.asset_names(tag))))
             populate(); release.validate_assets(root,tag,commit)
             with self.assertRaises(ValueError): release.validate_assets(root,tag,'b'*40)
@@ -135,7 +162,8 @@ class PatchReleaseTests(unittest.TestCase):
                 if args[1].endswith('/releases/17'): return {'html_url':'https://example.invalid/patch'}
                 return {}
             with patch.object(release,'merged_commit',return_value='a'*40), \
-                 patch.object(release,'validate_assets',return_value={'runtime_version':'0.3.9-patch1'}), \
+                 patch.object(release,'validate_assets',return_value={'runtime_version':'0.3.9-patch1',
+                    'known_issues':['Kick-off crash remains under investigation.']}), \
                  patch.object(release,'repository',return_value='Ibnuard/pes13_nx'), \
                  patch.object(release,'gh',side_effect=api), \
                  patch.object(release.subprocess,'run'):
@@ -144,6 +172,8 @@ class PatchReleaseTests(unittest.TestCase):
             self.assertEqual(len(changes),2)
             self.assertTrue(all(data['make_latest']=='false' for data in changes))
             self.assertTrue(changes[0]['draft'])
+            self.assertTrue(changes[0]['prerelease'])
+            self.assertIn('Kick-off crash remains under investigation.', changes[0]['body'])
             self.assertFalse(changes[1]['draft'])
 
 

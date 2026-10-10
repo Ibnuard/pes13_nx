@@ -22,7 +22,7 @@ class Model(Quiet):
         self.vm.mem_map(self.pool, 0x100000)
         self.allocations = {}; self.failed_alloc = False; self.paths = []; self.messages = []; self.opens = []
         self.exists = {TARGET}; self.debug = False
-        self.q(self.symbols['config_dir'], self.alloc(b'sdmc:/switch/pes13-fex\0'))
+        self.q(self.symbols['config_dir'], self.alloc((ROOT.removesuffix('/drive_c')+'\0').encode()))
 
     def alloc(self, data):
         address = self.next; self.next += (max(1, len(data)) + 15) & -16
@@ -107,10 +107,15 @@ class Model(Quiet):
 
 
 def main():
+    global ROOT, TARGET
     p = argparse.ArgumentParser(description=__doc__); p.add_argument('elf', type=Path)
     p.add_argument('--output', type=Path, required=True)
+    p.add_argument('--edition', choices=('experimental', 'patch'), default='experimental')
     p.add_argument('--baseline', action='store_true', help='Reproduce the missing-directory failure on LW5')
     a = p.parse_args()
+    if a.edition == 'patch':
+        ROOT = 'sdmc:/switch/pes13-patch-fex/drive_c'
+        TARGET = ROOT + '/KONAMI/Pro Evolution Soccer 2013/settings.dat'
     binary = a.elf.read_bytes(); m = Model(Buffered(binary))
     if a.baseline:
         result = m.resolve(PATCH)
@@ -163,7 +168,8 @@ def main():
         attr = m.args(PATCH); handle = m.alloc(bytes(8)); io = m.alloc(bytes(16))
         assert m.call('NtOpenFile', handle, access, attr, io, 3, 0) == 0
         assert m.uq(handle) == 0x444 and m.opens[-1] == (TARGET, CANONICAL, 1)
-    report = dict(passed=True, hardware_tested=False, elf_sha256=hashlib.sha256(binary).hexdigest(),
+    report = dict(passed=True, hardware_tested=False, edition=a.edition, root=ROOT,
+        elf_sha256=hashlib.sha256(binary).hexdigest(),
         checks=['Real Wine resolver redirects renamed KONAMI settings before failed directory lookup',
                 'Case/DOS/game-local/Documents aliases return the canonical NT and Unix path',
                 'Save files, original settings and unrelated game files keep their paths',

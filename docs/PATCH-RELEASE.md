@@ -26,6 +26,11 @@ Both workflows ignore direct pushes, open PRs, and unmerged PR closures. They
 package the exact merge commit, not a moving branch head. Artifacts, concurrency
 groups and publish scripts are separate. They share format/import validators.
 
+The patch release asset names are `FEXTendo-PES13-patch-v*-sd.zip`,
+`pes13-patch-fex.nro`, `FEXTendo-PES13-Patch.nsp`, `manifest-patch.json`,
+and `SHA256SUMS-patch.txt`. The SD ZIP retains its internal `manifest.json`.
+All public asset names and the Actions artifact contain the patch marker.
+
 The patch workflow uses `pull_request` with `types: [closed]` and requires
 `merged == true`. This allows it to live only on the patch branch. Unlike
 `pull_request_target`, it does not load the workflow from the repository's
@@ -103,10 +108,11 @@ kernel/loader boot environment. Ordinary original forwarders remain separate.
 
 ## Approving a release input
 
-The current patch lock is intentionally **unapproved**. Existing LW6 binaries
-still use the original `pes13-fex` root, and the most recent run crashed before
-kick-off. Creating this release branch does not make those binaries independent
-or establish a crash fix. No new NRO/NSP is distributed by this setup change.
+An unapproved patch lock blocks packaging: it is not a request for a manual
+GitHub approval. `package-patch-runtime.py stage` prepares hash-verified runtime
+inputs without reusing the old NRO/NSP. `seal` accepts the rebuilt patch NRO,
+its matching forwarder, and checks bound to that ELF, verifies the complete
+payload and repair catalog, and creates an approved lock with its archive hash.
 
 Before the first patch release, finish the build and device checks, then prepare
 an immutable complete patch runtime input. It must include:
@@ -132,11 +138,17 @@ SD paths (including UTF-16), and a repair catalog that would replace packaged
 DLLs with different versions. It does not fall back to the original release.
 CI performs import/format/checksum validation, not a Switch gameplay test.
 
-## Checkpoint status
+## First patch preview
 
-This checkpoint carries the Kitserver/LW changes from `codex/runtime-fixer`
-into the independent `patch-release` line. The isolated runtime input is still
-unapproved. The first CI run can validate release separation, but packaging
-and publication remain blocked until that input is built and pinned. This
-source checkpoint does not distribute a new NRO/NSP or claim to fix the LW6
-kick-off crash.
+The independent runtime is version `0.3.9-patch1`, based on LW6, Kit16 FEX and
+Kit17 DXVK. Reused DLLs are verified against their input manifests and scanned
+for original installation paths. The NRO is rebuilt with patch paths and a
+separate compiled repair catalog; its NSP uses the existing verified low-window
+NSO with distinct metadata and target path. Initial settings and presets select
+both XInput flags with VSync on and frame skipping off.
+
+The latest LW6 device run respected launcher settings but crashed before
+kick-off. The new independent build requires Switch testing. This remains a
+prerelease, carries that known issue into its manifest/release notes, and never
+replaces the original Latest release. Host and ARM64 model checks verify the
+packaged code and isolation, not game compatibility or performance on hardware.
