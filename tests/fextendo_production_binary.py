@@ -72,6 +72,11 @@ def main():
     m.call('wine_nx_runtime_std_write',2,1,1048576);m.call('wine_nx_runtime_dump_std_streams')
     previous_queries=len(m.queries)
     m.call('fx_debug_file_tick');m.call('fx_crash_bootstrap');m.call('fx_crash_init',1)
+    if 'horizon_dir_diag_begin' in m.symbols:
+        assert not m.call('horizon_dir_diag_begin',0x1c34)
+        m.call('horizon_dir_diag_stage',0,3);m.call('horizon_dir_diag_end',0,1)
+        m.call('horizon_dir_diag_tick')
+        assert bytes(m.vm.mem_read(m.symbols['horizon_dir_diag_slots'],16*24))==bytes(16*24)
     m.call('wine_nx_crash_exception',1,0xc0000005);m.call('wine_nx_crash_exit',7)
     m.call('wine_nx_crash_rust_allocation',1,1024,16,0,1)
     assert len(m.queries)==previous_queries
@@ -125,7 +130,7 @@ def main():
         'Real GUI handoff joins the launcher before game ownership; no independent debug worker exists',
         'After handoff the console is inactive while late errors still enter the file queue; quiet crash callbacks have no I/O',
         'Hostile profiling flags remain disabled; performance, registry persistence and CPU balancing remain intact',
-        'ELF excludes overlay/health workers, thread sampling and per-Vulkan-call observers'],
+        'ELF excludes overlay/health workers, thread sampling and the legacy transition logger'],
         'test_sources':{'tests/fextendo_production_binary.py':hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}}
     a.output.parent.mkdir(parents=True,exist_ok=True)
     a.output.write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report,indent=2))

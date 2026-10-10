@@ -27,7 +27,7 @@ def apply(source):
         changed.add(name)
 
     def runtime(data):
-        assert '#define FX_APP_VERSION "0.3.9-fixer1"' in data
+        assert '#define FX_APP_VERSION "0.3.9-kit15"' in data
         data = one(data, '#include <switch.h>', '#include <switch.h>\n#define FX_SCREEN_DEBUG 1\n#include "fextendo_launch_debug.h"\n#include "fextendo_launch_memory.h"\n#include "fextendo_startup_heap.h"\nvoid wine_nx_transition_event(unsigned,unsigned,uint64_t,uint64_t);')
         data = one(data, '    if (!fx_silent_io_init()) return 1;',
                    '    if (!fx_launch_memory_validate()) return 0;\n    if (!fx_silent_io_init()) return 1;')

@@ -98,6 +98,11 @@ def main():
     for name,digest in baseline['generated_sources'].items():
         assert sha(source/name)==digest,('archived keyboard-v4 differs',name)
     before={n:(source/n).read_text() for n in baseline['generated_sources']}
+    # This prepared file was not in the older patch manifest. Restore its
+    # exact baseline so repeated probe builds do not accumulate instrumentation.
+    server_source=prepared/'dlls/ntdll/unix/server.c'
+    assert sha(server_source)=='201ed95d0e78ac1e2f13a6e1098f56c924c6988d07dceb8a21397b4e4946296d'
+    shutil.copy2(server_source,source/'dlls/ntdll/unix/server.c')
     runtime=source/'wine-nx-probe/source/runtime.c'
     data=runtime.read_text()
     for name in ('fextendo_presets.h','fextendo_ui.h','fextendo_launcher.h'):
@@ -123,7 +128,8 @@ def main():
     paths.add('src/runtime/fextendo_diagnostics.h')
     if a.production:paths.update(('src/runtime/fextendo_launch_debug.h','src/runtime/fextendo_debug_console.h',
         'src/runtime/fextendo_launch_memory.h','src/runtime/fextendo_startup_heap.h','src/runtime/fextendo_debug_file.h',
-        'src/runtime/fextendo_virtmem.c'))
+        'src/runtime/fextendo_virtmem.c','src/runtime/fextendo_wait_probe.h','src/runtime/fextendo_wait_threads.h',
+        'src/runtime/fextendo_guest_va.h'))
     if a.transition_trace:
         paths.update(('src/runtime/fextendo_transition_trace.h','src/runtime/fextendo_transition_alloc.h'))
     if a.crash_log:paths.add('src/runtime/fextendo_crash.h')
@@ -169,6 +175,8 @@ def main():
     if a.page_store:
         from fextendo_page_store_patches import apply as page_apply
         generated.update(page_apply(source,ROOT))
+        from fextendo_commit_patches import apply as commit_apply
+        generated.update(commit_apply(source,ROOT))
         runtime.write_text(runtime.read_text().replace('#define FX_TRANSITION_TRACE 1',
             '#define FX_TRANSITION_TRACE 1\n#define FX_PAGE_STORE 1'))
     if a.scratch_pages:
@@ -207,13 +215,49 @@ def main():
         # All libnx/Wine/FEX users retain ONE reservation manager. Defining the
         # complete virtmem ABI here prevents the archive's virtmem.o extraction.
         cmake.write_text(cmake.read_text()+'\ntarget_sources(wine-nx-runtime PRIVATE "'+str(feature/'fextendo_virtmem.c')+'")\n')
+    from fextendo_process_params_patches import apply as process_params_apply
+    generated.update(process_params_apply(source))
+    if a.page_store:
+        from fextendo_section_anchor_patches import apply as section_anchor_apply
+        generated.update(section_anchor_apply(source))
+    if a.production:
+        from fextendo_vm_fault_patches import apply as vm_fault_apply
+        generated.update(vm_fault_apply(source))
+        from fextendo_directory_patches import apply as directory_apply
+        generated.update(directory_apply(source))
+        from fextendo_directory_meta_patches import apply as directory_meta_apply
+        generated.update(directory_meta_apply(source))
+        from fextendo_wait_probe_patches import apply as wait_probe_apply
+        generated.update(wait_probe_apply(source,feature))
+        from fextendo_guest_va_patches import apply as guest_va_apply
+        generated.update(guest_va_apply(source,feature))
+        from fextendo_anon_pipe_patches import apply as anon_pipe_apply
+        generated.update(anon_pipe_apply(source))
+    if a.production:
+        # Set the actual guest environment (native setenv does not propagate
+        # into these explicit Wine process-parameter environment blocks).
+        data = runtime.read_text()
+        anchor = '    "FEX_MAXINST='
+        assert data.count(anchor) == 6, 'Expected six cache/MaxInst environment variants'
+        data = data.replace(anchor, '    "FEX_O0=0\\0"\n' + anchor)
+        anchor = '    pes13_fex_set_performance_profile(fex_profile);'
+        assert data.count(anchor) == 1
+        data = data.replace(anchor, anchor + '\n    wine_nx_runtime_trace("[FEX-OPTIMIZATIONS] v1 guest FEX_O0=0; normal flag/x87 IR optimization enabled");')
+        runtime.write_text(data)
+        generated.add('wine-nx-probe/source/runtime.c')
     features={n:sha(ROOT/n) for n in sorted(paths)}
+    if a.production:
+        for n in ('src/runtime/horizon_directory_meta.h', 'src/runtime/horizon_directory_meta.c',
+                  'src/runtime/horizon_anon_pipe.h','src/runtime/horizon_anon_pipe_api.h',
+                  'src/runtime/horizon_anon_pipe_server.h'):
+            features[n] = sha(ROOT/n)
     if a.scratch_reserve:features['src/fex/horizon_scratch_reserve.h']=sha(ROOT/'src/fex/horizon_scratch_reserve.h')
     if a.scratch_pages:
         for name in ('horizon_scratch_pages.h','horizon_heap_pressure.h'):
             features['src/fex/'+name]=sha(ROOT/'src/fex'/name)
     if a.page_store:
-        for name in ('horizon_page_store.h','horizon_store_backing.h','horizon_pool_pressure.h'):
+        for name in ('horizon_page_store.h','horizon_store_backing.h','horizon_pool_pressure.h',
+                     'horizon_commit.h','horizon_memory_failure.h'):
             features['src/runtime/'+name]=sha(ROOT/'src/runtime'/name)
     spec=importlib.util.spec_from_file_location('runtime_builder',ROOT/'tools/build-fex-runtime.py')
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
@@ -253,9 +297,31 @@ def main():
     report['scratch_reserve_mib']=a.scratch_reserve_mib if a.scratch_reserve else 0
     report['native_fex_sources']=fex_sources
     report['runtime_fixer']=1
+    report['process_params_version']=1
+    report['app_version']='0.3.9-kit15' if a.production else '0.3.8-test'
+    report['commit_recovery_version']=1 if a.page_store else 0
+    report['wait_probe_version']=2 if a.production else 0
+    report['guest_va_partition_version']=1 if a.production else 0
+    report['anonymous_pipe_version']=3 if a.production else 0
+    report['directory_cursor_version']=2 if a.production else 0
+    report['directory_metadata_version']=2 if a.production else 0
+    report['vm_fault_trace_version']=2 if a.production else 0
+    report['fex_flag_control']=0
+    report['fex_optimizations']='normal'
+    report['vm_protect_trace_version']=1 if a.production else 0
+    report['section_anchor_version']=1 if a.page_store else 0
+    report['build_scripts']['tools/fextendo_process_params_patches.py']=sha(ROOT/'tools/fextendo_process_params_patches.py')
+    if a.page_store:report['build_scripts']['tools/fextendo_section_anchor_patches.py']=sha(ROOT/'tools/fextendo_section_anchor_patches.py')
+    if a.production:report['build_scripts']['tools/fextendo_vm_fault_patches.py']=sha(ROOT/'tools/fextendo_vm_fault_patches.py')
+    if a.production:report['build_scripts']['tools/fextendo_directory_patches.py']=sha(ROOT/'tools/fextendo_directory_patches.py')
+    if a.production:report['build_scripts']['tools/fextendo_directory_meta_patches.py']=sha(ROOT/'tools/fextendo_directory_meta_patches.py')
+    if a.production:report['build_scripts']['tools/fextendo_wait_probe_patches.py']=sha(ROOT/'tools/fextendo_wait_probe_patches.py')
+    if a.production:report['build_scripts']['tools/fextendo_guest_va_patches.py']=sha(ROOT/'tools/fextendo_guest_va_patches.py')
+    if a.production:report['build_scripts']['tools/fextendo_anon_pipe_patches.py']=sha(ROOT/'tools/fextendo_anon_pipe_patches.py')
     report['repair_dependencies']={n:sha(sdk/'portlibs/switch/lib'/n) for n in ('libcurl.a','libminizip.a')}
     if a.scratch_reserve:report['build_scripts']['tools/fextendo_scratch_patches.py']=sha(ROOT/'tools/fextendo_scratch_patches.py')
     if a.page_store:report['build_scripts']['tools/fextendo_page_store_patches.py']=sha(ROOT/'tools/fextendo_page_store_patches.py')
+    if a.page_store:report['build_scripts']['tools/fextendo_commit_patches.py']=sha(ROOT/'tools/fextendo_commit_patches.py')
     if a.rust_heap:report['build_scripts']['tools/fextendo_rust_heap_patches.py']=sha(ROOT/'tools/fextendo_rust_heap_patches.py')
     if a.rust_heap:report['build_scripts']['tools/fextendo_mesa_heap_patches.py']=sha(ROOT/'tools/fextendo_mesa_heap_patches.py')
     if a.production:report['build_scripts']['tools/fextendo_production_patches.py']=sha(ROOT/'tools/fextendo_production_patches.py')
@@ -279,7 +345,7 @@ def main():
          '-DPES13_LIBNX_EXCEPTION_OBJECT='+str(exception),'-DCMAKE_BUILD_TYPE=Release'])
     run(['cmake','--build',build,'--target','wine-nx-runtime','-j',a.jobs])
     nro=work/'pes13-fex.nro';nacp=work/'pes13-fex.nacp'
-    run([sdk/'tools/bin/nacptool','--create','PES13 - FEXTendo','AndroSwitch Project','0.3.9-fixer1' if a.production else '0.3.8-test',nacp])
+    run([sdk/'tools/bin/nacptool','--create','PES13 - FEXTendo','AndroSwitch Project',report['app_version'],nacp])
     run([sdk/'tools/bin/elf2nro',build/'wine-nx-runtime.elf',nro,'--nacp='+str(nacp),
          '--icon='+str(archive/'source/assets/fextendo-v3/nro-icon.jpg')])
     assert deps==module.native_dependency_receipt(mesa,sdk)

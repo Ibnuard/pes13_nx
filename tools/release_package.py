@@ -99,7 +99,11 @@ def write_zip(path, files, directories=()):
             z.writestr(info, data)
 
 
-def verify_payload(files, lock):
+def verify_payload(files, lock, channel=None):
+    prefix = channel['prefix'] if channel else PREFIX
+    nro = prefix + channel['nro'] if channel else NRO
+    nsp = channel['nsp'] if channel else NSP
+    fex = prefix + 'drive_c/windows/system32/libwow64fex.dll'
     for name in files:
         safe_name(name)
         low = name.lower()
@@ -109,34 +113,35 @@ def verify_payload(files, lock):
             # Sources and build receipts may describe old experiments; never ship their payloads.
             if not name.startswith(('source/', 'evidence/')):
                 raise ValueError('Unexpected distributed file: ' + name)
-    for n in (NRO, NSP, FEX, PREFIX + 'configuration.ini', PREFIX + 'launcher/font.bin',
-              PREFIX + 'launcher/background.rgba', PREFIX + 'drive_c/PES13/d3d9.dll',
-              PREFIX + 'share/wine/nls/locale.nls', *[PREFIX + n for n in SETTINGS]):
+    for n in (nro, nsp, fex, prefix + 'configuration.ini', prefix + 'launcher/font.bin',
+              prefix + 'launcher/background.rgba', prefix + 'drive_c/PES13/d3d9.dll',
+              prefix + 'share/wine/nls/locale.nls', *[prefix + n for n in SETTINGS]):
         if n not in files:
             raise ValueError('Missing required payload: ' + n)
     for n, digest in lock['binaries'].items():
         if sha(files[n]) != digest:
             raise ValueError('Changed approved binary: ' + n)
-    metadata = inspect_nro(files[NRO], (ROOT / 'assets/fextendo-v3/nro-icon.jpg').read_bytes(),
-                           expected_title='PES13 - FEXTendo', expected_version=lock['runtime_version'])
+    metadata = inspect_nro(files[nro], (ROOT / 'assets/fextendo-v3/nro-icon.jpg').read_bytes(),
+                           expected_title=channel['nro_title'] if channel else 'PES13 - FEXTendo',
+                           expected_version=lock['runtime_version'])
     forwarder = json.loads(files['evidence/forwarder/build.json'])
-    if (forwarder['nsp_sha256'] != sha(files[NSP])
+    if (forwarder['nsp_sha256'] != sha(files[nsp])
             or forwarder['icon_sha256'] != metadata['icon_sha256']
-            or forwarder['address_space'] != '32-bit no-alias'
+            or forwarder['address_space'] != ('39-bit low-window' if channel else '32-bit no-alias')
             or forwarder['cpu_cores'] != 4 or forwarder['svc_debug'] is not False
-            or forwarder['nro_path'] != 'sdmc:/switch/pes13-fex/pes13-fex.nro'):
+            or forwarder['nro_path'] != 'sdmc:/' + nro):
         raise ValueError('Forwarder identity/capabilities differ from approved NRO')
     spec = importlib.util.spec_from_file_location('forwarder', ROOT / 'tools/build-fextendo-forwarder.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    if {n: sha(d) for n, d in module.pfs_files(files[NSP]).items()} != forwarder['nca_files']:
+    if {n: sha(d) for n, d in module.pfs_files(files[nsp]).items()} != forwarder['nca_files']:
         raise ValueError('Forwarder NCA hashes differ from verified build')
-    options = dict(line.strip().split('=', 1) for line in files[PREFIX + 'configuration.ini'].decode().splitlines()
+    options = dict(line.strip().split('=', 1) for line in files[prefix + 'configuration.ini'].decode().splitlines()
                    if '=' in line and not line.lstrip().startswith('#'))
     if options.get('run_guest_tests') != '0' or options.get('production') != '1':
         raise ValueError('Release must launch the game in production mode')
     for n in SETTINGS:
-        data = files[PREFIX + n]
+        data = files[prefix + n]
         crc = 0
         for i, b in enumerate(data):
             crc ^= (0 if i in (12, 13) else b) << 8
@@ -152,8 +157,8 @@ def verify_payload(files, lock):
     with tempfile.TemporaryDirectory() as temp:
         dest = Path(temp)
         for name, data in files.items():
-            if name.startswith(PREFIX + 'drive_c/windows/'):
-                p = dest / name.removeprefix(PREFIX)
+            if name.startswith(prefix + 'drive_c/windows/'):
+                p = dest / name.removeprefix(prefix)
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_bytes(data)
         reports = {}
