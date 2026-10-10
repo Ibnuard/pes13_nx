@@ -125,14 +125,14 @@ int main(int argc,char **argv) {
         /* Existing canonical DirectInput settings must migrate to XInput,
          * preserving keyboard/DirectInput bindings and all unrelated flags. */
         snprintf(path,sizeof(path),"%s%s",argv[1],fx_targets[0]);assert(fx_read(path,custom,852)==852);
-        custom[15]&=~2;custom[340]=(unsigned char)(40+i);custom[480]=(unsigned char)(60+i);
+        custom[14]&=~8;custom[15]&=~2;custom[340]=(unsigned char)(40+i);custom[480]=(unsigned char)(60+i);
         uint16_t custom_crc=fx_crc(custom);custom[12]=custom_crc;custom[13]=custom_crc>>8;
         assert(fx_write(path,custom,852));
         assert(fx_apply_preset(argv[1],i));assert(fx_selected(argv[1])==i);
         for(x=0;x<3;x++){
             snprintf(path,sizeof(path),"%s%s",argv[1],fx_targets[x]);assert(fx_read(path,data,852)==852);
             assert(fx_valid_settings(data,852));assert(data[14]&1);assert(fx_u32(data+24)==1);
-            assert(data[15]&2);assert(data[15]==(custom[15]|2));
+            assert(data[14]&8);assert(data[15]&2);assert(data[15]==(custom[15]|2));
             assert(!memcmp(data+32,custom+32,852-32));
             assert(fx_u32(data+16)==(i==2?960:1280));assert(fx_u32(data+20)==(i==2?540:720));
             if(!x)memcpy(expected,data,852);else assert(!memcmp(expected,data,852));

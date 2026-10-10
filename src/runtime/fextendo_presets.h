@@ -26,6 +26,10 @@ static uint16_t fx_crc(const unsigned char *d) {
         for(j=0;j<8;j++)v=((v<<1)^((v&32768)?0x1021:0))&65535;}
     return (uint16_t)~v;
 }
+#define FX_SETTINGS_VSYNC 0x0001u
+#define FX_SETTINGS_FRAME_SKIP 0x0002u
+/* Settings.exe UI selection and PES runtime selection must agree. */
+#define FX_SETTINGS_XINPUT 0x0208u
 static int fx_valid_settings(const unsigned char *d,size_t n) {
     return n==852 && fx_u32(d)==0x46434557 && fx_u32(d+4)==2 && fx_u32(d+8)==852 &&
         ((unsigned)d[12]|(unsigned)d[13]<<8)==fx_crc(d);
@@ -33,6 +37,22 @@ static int fx_valid_settings(const unsigned char *d,size_t n) {
 static size_t fx_read(const char *path,void *data,size_t cap) {
     FILE *f=fopen(path,"rb");size_t n;if(!f)return 0;
     n=fread(data,1,cap,f);if(ferror(f)||fgetc(f)!=EOF)n=0;fclose(f);return n;
+}
+/* Read the actual file, not the template or selected preset label. */
+static int fx_settings_flags(const char *root,unsigned target,unsigned *flags) {
+    char path[768];unsigned char data[852];
+    if(target>=3)return 0;
+    snprintf(path,sizeof(path),"%s%s",root,fx_targets[target]);
+    if(!fx_valid_settings(data,fx_read(path,data,sizeof(data))))return 0;
+    *flags=(unsigned)data[14]|(unsigned)data[15]<<8;return 1;
+}
+static int fx_verify_settings_flags(const char *root) {
+    unsigned flags;
+    for(unsigned i=0;i<3;i++)
+        if(!fx_settings_flags(root,i,&flags)||
+           (flags&(FX_SETTINGS_VSYNC|FX_SETTINGS_FRAME_SKIP|FX_SETTINGS_XINPUT))!=
+           (FX_SETTINGS_VSYNC|FX_SETTINGS_XINPUT))return 0;
+    return 1;
 }
 static int fx_write(const char *path,const void *data,size_t size) {
     FILE *f=fopen(path,"wb");int ok;if(!f)return 0;
@@ -178,8 +198,11 @@ static int fx_apply_preset(const char *root,int selected) {
         if(!access(path[i],F_OK))mask|=1u<<i;
         if(i<3){
             memcpy(data[i],canonical,852);
-            data[i][14]|=1; /* VSync; preserve other controller/display flags. */
-            data[i][15]|=2; /* Global PES XInput flag 0x0200, for both native slots. */
+            /* Display timing belongs to the preset too. Inheriting bit 0x2
+             * from a prior Settings.exe/patch profile silently enabled frame
+             * skipping. Keep all unrelated flags and controller bindings. */
+            data[i][14]=(data[i][14]|FX_SETTINGS_VSYNC|(FX_SETTINGS_XINPUT&255u))&~FX_SETTINGS_FRAME_SKIP;
+            data[i][15]|=FX_SETTINGS_XINPUT>>8;
             memcpy(data[i]+16,templ+16,16); /* resolution, 16:9, quality */
             uint16_t crc=fx_crc(data[i]);data[i][12]=crc;data[i][13]=crc>>8;sizes[i]=852;
         } else if(i==3){
@@ -197,7 +220,7 @@ static int fx_apply_preset(const char *root,int selected) {
         unsigned char existing[4096];
         if(fx_read(path[i],existing,sizeof(existing))!=sizes[i]||memcmp(existing,data[i],sizes[i]))unchanged=0;
     }
-    if(unchanged)return 1;
+    if(unchanged)return fx_verify_settings_flags(root);
     for(i=0;i<5;i++)if(!fx_write(tmp[i],data[i],sizes[i]))goto stage_failed;
     /* Remove only stale backups left after a committed transaction. */
     for(i=0;i<5;i++)if(unlink(old[i])&&errno!=ENOENT)goto stage_failed;
@@ -206,7 +229,7 @@ static int fx_apply_preset(const char *root,int selected) {
         if((mask&(1u<<i))&&rename(path[i],old[i]))goto rollback;
         if(rename(tmp[i],path[i]))goto rollback;
     }
-    if(unlink(journal))goto rollback;
+    if(!fx_verify_settings_flags(root)||unlink(journal))goto rollback;
     for(i=0;i<5;i++)unlink(old[i]);
     return 1;
 rollback:

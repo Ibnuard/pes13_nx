@@ -61,8 +61,12 @@ static void *reserve(size_t n) {
 struct anchor_token { void *source,*view; size_t size; int fd; off_t offset; struct anchor_token *next; };
 static struct anchor_token *anchors;
 static unsigned anchor_calls, fail_anchor, unanchor_calls, fail_unanchor, alias_calls, fail_alias;
+static size_t anchor_address_limit = SIZE_MAX;
+static int anchor_address_budget = -1;
 static void *anchor(void *source,size_t size,void **token) {
     if (++anchor_calls==fail_anchor) { errno=ENOMEM; return NULL; }
+    if (size > anchor_address_limit || !anchor_address_budget) { errno=EADDRNOTAVAIL; return NULL; }
+    if (anchor_address_budget > 0) --anchor_address_budget;
     struct allocation *a=find_allocation(source,size);
     struct anchor_token *t=calloc(1,sizeof(*t)); assert(t);
     t->source=source;t->size=size;t->fd=a->fd;t->offset=(char*)source-(char*)a->ptr;

@@ -3,6 +3,13 @@ static void *horizon_backing_pages_alloc(size_t size)
 {
     void *ptr = horizon_pages_alloc(&backing_pages, size);
     if (!ptr) { ptr = memalign(0x1000, size); backing_direct_allocs++; }
+    /* Already under mapping_mutex: the public trylock callback cannot recover
+     * this call. Return only wholly idle arenas, then retry the direct request
+     * before the fragmented-store fallback needs small metadata allocations. */
+    if (!ptr && horizon_pages_trim(&backing_pages)) {
+        ptr = memalign(0x1000, size);
+        backing_direct_allocs++;
+    }
     return ptr;
 }
 static void horizon_backing_pages_free(void *ptr, size_t size)

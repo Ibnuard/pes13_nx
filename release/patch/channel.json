@@ -1,0 +1,13 @@
+{
+  "channel": "patch",
+  "branch": "patch-release",
+  "prefix": "switch/pes13-patch-fex/",
+  "nro": "pes13-patch-fex.nro",
+  "nro_title": "PES13 Patch - FEXTendo",
+  "home_title": "PES13 Patch",
+  "nsp": "FEXTendo-PES13-Patch.nsp",
+  "forwarder_tag": "pes13-patch-fex-v1",
+  "memory_abi": "fxtmem-v1",
+  "release_tag_prefix": "patch-v",
+  "make_latest": false
+}

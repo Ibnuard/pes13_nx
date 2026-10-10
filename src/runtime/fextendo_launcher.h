@@ -192,7 +192,7 @@ static void *fx_ui_main(void *arg) {
                     fx_timestamp_arm(fx_ui_view.timestamp,frame_start);
 #ifdef FX_SCREEN_DEBUG
                     fx_debug_file_begin(fx_ui_view.tile==4);
-                    fx_launch_debug_log("[STARTUP] FEXTendo 0.3.9-fixer1 / startup console / debug files enabled");
+                    fx_launch_debug_log("[STARTUP] FEXTendo " FX_APP_VERSION " / startup console / debug files enabled");
 #endif
                     fx_ui_view.screen=FX_LOADING;fx_ui_view.message="Preparing your game...";pending=1;started=frame_start;
                 }
@@ -351,6 +351,12 @@ static int fx_launcher_start(void) {
         log_line("[STARTUP] renderer ready=%d; verifying game settings...",ready);
         if(ready)ready=fx_apply_preset(RUNTIME_DIR,selected);
         log_line("[STARTUP] game settings ready=%d",ready);
+        if(ready&&wine_nx_launch_debug_active())for(unsigned i=0;i<3;i++){
+            unsigned flags=0;int valid=fx_settings_flags(RUNTIME_DIR,i,&flags);
+            log_line("[SETTINGS-VERIFY] path=%s crc_valid=%d flags=%04x vsync=%u frame_skip=%u xinput=%u",
+                     fx_targets[i],valid,flags,!!(flags&FX_SETTINGS_VSYNC),
+                     !!(flags&FX_SETTINGS_FRAME_SKIP),(flags&FX_SETTINGS_XINPUT)==FX_SETTINGS_XINPUT);
+        }
         if(__atomic_load_n(&fx_ui_command,__ATOMIC_ACQUIRE)<0){
             __atomic_store_n(&fx_boot_started,0,__ATOMIC_RELEASE);
             pthread_join(fx_ui_thread,NULL);fx_ui_created=0;return 0;

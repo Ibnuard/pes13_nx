@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "channel": "patch",
+  "approved": false,
+  "reason": "Rebuild the isolated pes13-patch-fex runtime and forwarder, validate the repair catalog, and resolve or document the LW6 kick-off crash before approving a patch release. Never use release/runtime-lock.json as a fallback."
+}

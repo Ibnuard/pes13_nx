@@ -1,0 +1,80 @@
+name: FEXTendo Patch package and release
+
+on:
+  # Use the merged patch branch, without installing this workflow on main.
+  pull_request:
+    types: [closed]
+    branches: [patch-release]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Validate isolated patch SD package
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      commit: ${{ steps.version.outputs.commit }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          persist-credentials: false
+      - name: Install package verifier
+        run: python3 -m pip install -r requirements.txt
+      - name: Test release separation
+        run: python3 -m unittest discover -s tests -p 'test_release_*.py' -v
+      - name: Require approved patch runtime and set version
+        id: version
+        run: python3 tools/patch_release.py version
+      - name: Download pinned patch runtime
+        id: runtime
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/patch_release.py fetch --output .cache/patch-release
+      - name: Assemble and verify patch NRO, NSP and SD layout
+        env:
+          PACKAGE_TAG: ${{ steps.version.outputs.version }}
+          PACKAGE_COMMIT: ${{ steps.version.outputs.commit }}
+          RUNTIME_ARCHIVE: ${{ steps.runtime.outputs.runtime_path }}
+        run: |
+          python3 tools/patch_release.py assemble \
+            --runtime "$RUNTIME_ARCHIVE" --output dist/patch-release \
+            --tag "$PACKAGE_TAG" --commit "$PACKAGE_COMMIT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: FEXTendo-Patch-${{ steps.version.outputs.version }}
+          path: dist/patch-release/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  release:
+    name: Publish patch release without replacing original Latest
+    needs: package
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: fextendo-patch-release-${{ github.repository }}-${{ needs.package.outputs.version }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.package.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: FEXTendo-Patch-${{ needs.package.outputs.version }}
+          path: dist/patch-release
+      - name: Publish verified patch assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_TAG: ${{ needs.package.outputs.version }}
+          PACKAGE_COMMIT: ${{ needs.package.outputs.commit }}
+        run: python3 tools/patch_release.py publish --input dist/patch-release --tag "$PACKAGE_TAG" --commit "$PACKAGE_COMMIT"

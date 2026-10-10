@@ -14,8 +14,8 @@
 #define FX_WHITE FX_COLOR(242,248,252)
 #define FX_MUTED FX_COLOR(170,185,208)
 #define FX_BLUE FX_COLOR(51,194,255)
-#define FX_APP_VERSION "0.3.9-fixer1"
-#define FX_RELEASE "v3.9-fixer1"
+#define FX_APP_VERSION "0.3.9-kit15"
+#define FX_RELEASE "v3.9-kit5"
 #define FX_TILE_MIN 212
 #define FX_TILE_MAX 260
 #define FX_SCENES 6
