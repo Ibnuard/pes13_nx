@@ -6,6 +6,9 @@ static enum fx_osk_phase fx_osk_phase;
 static uint64_t fx_osk_serial;
 static unsigned fx_osk_player;
 static int fx_osk_blocking,fx_osk_unclaimed;
+#ifndef FX_OSK_TRACE
+#define FX_OSK_TRACE(...) ((void)0)
+#endif
 int fx_osk_blocked(void){return __atomic_load_n(&fx_osk_blocking,__ATOMIC_ACQUIRE);}
 uint64_t fx_osk_open(unsigned player) {
     uint64_t token=0;
@@ -19,7 +22,9 @@ uint64_t fx_osk_open(unsigned player) {
         fx_osk_unclaimed=1;
         fx_osk_phase=FX_OSK_PENDING;__atomic_store_n(&fx_osk_blocking,1,__ATOMIC_RELEASE);
     }
-    pthread_mutex_unlock(&fx_keyboard_lock);return token;
+    pthread_mutex_unlock(&fx_keyboard_lock);
+    if(token)FX_OSK_TRACE("[OSK] request token=%llu player=%u top=%d",(unsigned long long)token,player+1,fx_keyboard_options.top);
+    return token;
 }
 /* Display activation belongs to the native monitor. Wine claims a pending
  * session on the focused window's thread before sending any keyboard input.
@@ -57,6 +62,18 @@ void fx_osk_finished(uint64_t token) {
     if(token&&token==fx_osk_serial&&fx_osk_phase!=FX_OSK_IDLE){fx_osk_phase=FX_OSK_DRAIN;fx_osk_state.count=0;}
     pthread_mutex_unlock(&fx_keyboard_lock);
 }
+/* No key can be sent while PENDING. A failed first surface therefore needs
+ * no Wine acknowledgement, even if the window thread already claimed it.
+ * After OPEN, retain the normal acknowledgement to release injected keys. */
+static void fx_osk_display_failed(uint64_t token) {
+    pthread_mutex_lock(&fx_keyboard_lock);
+    if(token==fx_osk_serial){
+        if(fx_osk_phase==FX_OSK_PENDING){
+            fx_osk_phase=FX_OSK_DRAIN;fx_osk_state.count=0;fx_osk_unclaimed=0;
+        }else if(fx_osk_phase==FX_OSK_OPEN){fx_osk_phase=FX_OSK_ABORT;fx_osk_state.count=0;}
+    }
+    pthread_mutex_unlock(&fx_keyboard_lock);
+}
 static void fx_osk_service(void) {
     if(!fx_osk_blocked()&&fx_keyboard_manual())fx_osk_open(0);
     if(!fx_osk_blocked())return;
@@ -64,8 +81,8 @@ static void fx_osk_service(void) {
     struct fx_pad_sample pads[2];fx_pads_snapshot(pads);
     int x=0,y=0,touching=fx_osk_touch(&x,&y);
     int neutral=fx_pad_neutral(&pads[0]);
-    struct fx_osk_core view;unsigned player;enum fx_osk_phase phase;
-    pthread_mutex_lock(&fx_keyboard_lock);phase=fx_osk_phase;player=fx_osk_player;
+    struct fx_osk_core view;unsigned player;enum fx_osk_phase phase;uint64_t token;
+    pthread_mutex_lock(&fx_keyboard_lock);phase=fx_osk_phase;player=fx_osk_player;token=fx_osk_serial;
     if(phase==FX_OSK_OPEN){
         if(!fx_osk_state.top)y-=720-FX_OSK_HEIGHT;
         uint64_t ms=armGetSystemTick()/(armGetSystemTickFreq()/1000);
@@ -78,8 +95,9 @@ static void fx_osk_service(void) {
     view=fx_osk_state;pthread_mutex_unlock(&fx_keyboard_lock);
     if(phase==FX_OSK_PENDING||phase==FX_OSK_OPEN){
         int single=pads[player].kind==FX_PAD_LEFT?1:pads[player].kind==FX_PAD_RIGHT?2:0;
-        if(!fx_osk_display_show(&view,player,single))fx_osk_abort(0);
-        else if(phase==FX_OSK_PENDING){
+        int shown=fx_osk_display_show(&view,player,single);
+        if(!shown)fx_osk_display_failed(token);
+        else if(shown==1&&phase==FX_OSK_PENDING){
             pthread_mutex_lock(&fx_keyboard_lock);if(fx_osk_phase==FX_OSK_PENDING)fx_osk_phase=FX_OSK_OPEN;pthread_mutex_unlock(&fx_keyboard_lock);
         }
     }else{
@@ -87,6 +105,7 @@ static void fx_osk_service(void) {
         if(phase==FX_OSK_DRAIN&&neutral&&!touching&&appletGetFocusState()==AppletFocusState_InFocus){
             pthread_mutex_lock(&fx_keyboard_lock);fx_osk_phase=FX_OSK_IDLE;
             __atomic_store_n(&fx_osk_blocking,0,__ATOMIC_RELEASE);pthread_mutex_unlock(&fx_keyboard_lock);
+            FX_OSK_TRACE("[OSK] input restored token=%llu",(unsigned long long)token);
         }
     }
 }

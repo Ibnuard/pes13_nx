@@ -105,7 +105,8 @@ static void fx_keyboard_poll_locked(void) {
     for(unsigned i=0;i<1;i++){
         uint64_t buttons=fx_samples[i].connected?fx_samples[i].buttons:0;
         uint64_t mask=fx_keyboard_chord_mask(fx_keyboard_options.shortcut,fx_samples[i].kind);
-        if(fx_keyboard_chord_poll(&fx_keyboard_chords[i],buttons,mask,now,enabled&&i<fx_players)){
+        if(fx_keyboard_chord_poll(&fx_keyboard_chords[i],buttons,mask,now,
+                                 enabled&&i<fx_players,(unsigned)fx_keyboard_options.hold_ms)){
             __atomic_store_n(&fx_keyboard_manual_player,i,__ATOMIC_RELEASE);
             __atomic_store_n(&fx_keyboard_manual_deadline,now+1000,__ATOMIC_RELEASE);
             __atomic_store_n(&fx_keyboard_manual_pending,1,__ATOMIC_RELEASE);enabled=0;

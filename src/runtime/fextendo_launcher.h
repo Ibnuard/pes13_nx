@@ -7,7 +7,6 @@
 #define FX_SPLASH_MS 2400
 #endif
 #define FX_UI_FRAME_NS 16666667ull
-#include "fextendo_startup_switch.h"
 #ifdef FX_SCREEN_DEBUG
 #include "fextendo_debug_console.h"
 #include "fextendo_debug_file.h"
@@ -19,6 +18,7 @@ static pthread_mutex_t fx_handoff_lock=PTHREAD_MUTEX_INITIALIZER;
 static int fx_ui_created,fx_ui_owned,fx_ui_stop,fx_ui_command,fx_boot_started,fx_first_present;
 static struct fx_view fx_ui_view={.screen=FX_HOME,.sound=1,.battery=-1};
 static char fx_ui_message[192];
+#include "fextendo_startup_switch.h"
 static uint64_t fx_history_tick;
 static int fx_history_written;
 static void fx_record_first_present(void) {
@@ -83,20 +83,8 @@ static void fx_stage(const char *text) {
     if(fx_ui_view.screen==FX_LOADING){snprintf(fx_ui_message,sizeof(fx_ui_message),"%s",text);fx_ui_view.message=fx_ui_message;}
     pthread_mutex_unlock(&fx_ui_lock);
 }
-static void *fx_ui_main(void *arg) {
-    struct fx_art art;Framebuffer fb;Result rc;uint64_t previous_buttons=0;int input_drain=0;int pending=0,last_dir=0,psm_ready=0,splash_done=0;u64 repeat=0,started=0,last_frame=0,battery_due=0,ui_origin=0;
-    u64 render_sum=0,render_max=0,render_frames=0;
-    (void)arg;
-    if(!fx_art_load(&art,RUNTIME_DIR)){
-        fx_native_error("Launcher assets missing or damaged. Copy the complete switch folder.");
-        __atomic_store_n(&fx_ui_command,-1,__ATOMIC_RELEASE);return NULL;
-    }
-    rc=framebufferCreate(&fb,nwindowGetDefault(),FX_W,FX_H,PIXEL_FORMAT_RGBA_8888,2);
-    if(R_FAILED(rc))goto failed_fb;
-    rc=framebufferMakeLinear(&fb);
-    if(R_FAILED(rc)){framebufferClose(&fb);goto failed_fb;}
-    fx_pads_init();fx_ui_view.players=fx_pads_players();
-    __atomic_store_n(&fx_ui_owned,1,__ATOMIC_RELEASE);
+static void fx_ui_preferences(void){
+    fx_ui_view.screen=FX_HOME;fx_ui_view.fatal=0;fx_ui_view.message=NULL;
     if(!fx_renderer_recover(RUNTIME_DIR)||!fx_recover(RUNTIME_DIR)){
         fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=1;
         fx_ui_view.message="Settings recovery failed. Check SD card space.";
@@ -115,7 +103,24 @@ static void *fx_ui_main(void *arg) {
 #endif
     fx_ui_view.last_played=fx_last_played(RUNTIME_DIR);
     fx_ui_view.sound=fx_menu_sound(RUNTIME_DIR);
-    fx_ui_view.music=fx_background_music(RUNTIME_DIR);fx_music_set(fx_ui_view.music);fx_sfx_init(RUNTIME_DIR);
+    fx_ui_view.music=fx_background_music(RUNTIME_DIR);fx_music_set(fx_ui_view.music);
+}
+static void *fx_ui_main(void *arg) {
+    struct fx_art art;Framebuffer fb;Result rc;uint64_t previous_buttons=0;int input_drain=0;
+    int pending=0,last_dir=0,psm_ready=0,splash_done=0,check_requested=0;u64 repeat=0,started=0,last_frame=0,battery_due=0,ui_origin=0;
+    u64 render_sum=0,render_max=0,render_frames=0;
+    (void)arg;
+    if(!fx_boot_art_load(&art)){
+        fx_native_error("Unable to prepare the launcher display.");
+        __atomic_store_n(&fx_ui_command,-1,__ATOMIC_RELEASE);return NULL;
+    }
+    rc=framebufferCreate(&fb,nwindowGetDefault(),FX_W,FX_H,PIXEL_FORMAT_RGBA_8888,2);
+    if(R_FAILED(rc))goto failed_fb;
+    rc=framebufferMakeLinear(&fb);
+    if(R_FAILED(rc)){framebufferClose(&fb);goto failed_fb;}
+    fx_pads_init();fx_ui_view.players=fx_pads_players();
+    fx_ui_view.check=(struct fx_check_view){.visible=1,.percent=-1};
+    __atomic_store_n(&fx_ui_owned,1,__ATOMIC_RELEASE);
     psm_ready=R_SUCCEEDED(psmInitialize());
     ui_origin=armGetSystemTick();
     while(!__atomic_load_n(&fx_ui_stop,__ATOMIC_ACQUIRE)){
@@ -131,10 +136,10 @@ static void *fx_ui_main(void *arg) {
             if(fx_pad_neutral(&fx_ui_view.pads[0])&&fx_pad_neutral(&fx_ui_view.pads[1]))input_drain=0;
             down=held=0;
         }
-        if(!splash_done&&fx_ui_view.screen==FX_HOME){
+        if(!splash_done){
             u64 elapsed_ms=armTicksToNs(frame_start-ui_origin)/1000000;
             if(elapsed_ms>=FX_SPLASH_MS)splash_done=1;
-            else if(down){splash_done=1;down&=HidNpadButton_Plus;held=0;}
+            else if(down){splash_done=1;down=held=0;input_drain=1;}
             fx_ui_view.splash_ms=splash_done?0:FX_SPLASH_MS-(unsigned)elapsed_ms;
         }
         if(held&(HidNpadButton_Left|HidNpadButton_StickLLeft|HidNpadButton_Up|HidNpadButton_StickLUp))dir=-1;
@@ -153,14 +158,28 @@ static void *fx_ui_main(void *arg) {
         }
         confirm=(down&HidNpadButton_A)!=0;
         pthread_mutex_lock(&fx_ui_lock);
+        if(splash_done&&!check_requested){fx_check_request(0);check_requested=1;}
+        if(fx_ui_view.check.complete){
+            fx_art_free(&art);art=fx_check_art;memset(&fx_check_art,0,sizeof(fx_check_art));
+            fx_ui_view.check=(struct fx_check_view){0};
+            fx_ui_preferences();fx_sfx_init(RUNTIME_DIR);
+            down=held=0;confirm=dir=0;input_drain=1;
+        }
         int old_tile=fx_ui_view.tile,old_row=fx_ui_view.row,old_page=fx_ui_view.credit_page;
-        if(fx_ui_view.screen==FX_HOME||fx_ui_view.screen==FX_SETTINGS||fx_ui_view.screen==FX_CREDITS){
+        if(!fx_ui_view.check.visible&&(fx_ui_view.screen==FX_HOME||fx_ui_view.screen==FX_SETTINGS||fx_ui_view.screen==FX_CREDITS)){
             if(down&HidNpadButton_Plus){
                 __atomic_store_n(&fx_ui_command,-1,__ATOMIC_RELEASE);
                 pthread_mutex_unlock(&fx_ui_lock);break;
             }
         }
-        if(fx_ui_view.screen==FX_HOME){
+        if(fx_ui_view.check.visible){
+            /* There is no route around this modal into Play or Settings. */
+            if(fx_ui_view.check.failed&&confirm){fx_check_request(1);input_drain=1;}
+            else if(fx_ui_view.check.failed&&(down&(HidNpadButton_B|HidNpadButton_Plus))){
+                __atomic_store_n(&fx_ui_command,-1,__ATOMIC_RELEASE);
+                pthread_mutex_unlock(&fx_ui_lock);break;
+            }
+        }else if(fx_ui_view.screen==FX_HOME){
             int tiles=fx_ui_view.debug_launch?5:4;
             if(dir)fx_ui_view.tile=(fx_ui_view.tile+dir+tiles)%tiles;
             if(down&HidNpadButton_B)fx_ui_view.tile=0;
@@ -174,7 +193,7 @@ static void *fx_ui_main(void *arg) {
             else if(confirm){
                 if(!fx_boot_launch_ready){
                     fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;
-                    fx_ui_view.message="Incompatible launch mode. Use the 32-bit no-alias HOME tile for Medium/Low, or boot FEXTendo Patch and use the PES13 39-bit tile.";
+                    fx_ui_view.message="Incompatible launch mode. Boot FEXTendo Patch and use the updated PES13-FEXTendo HOME tile. The legacy 32-bit no-alias tile supports Medium/Low.";
                     pthread_mutex_unlock(&fx_ui_lock);continue;
                 }
                 if(!fx_high_allowed(fx_boot_patch_active,fx_ui_view.selected)){
@@ -203,6 +222,10 @@ static void *fx_ui_main(void *arg) {
             if(dir){fx_ui_view.row=(fx_ui_view.row+dir+rows)%rows;fx_ui_view.saved=0;}
             if(down&HidNpadButton_B)fx_settings_back(&fx_ui_view);
             else if(confirm){
+                if(fx_ui_view.settings_page==FX_SETTINGS_MAINTENANCE){
+                    fx_sfx_close();fx_ui_view.screen=FX_HOME;fx_check_request(1);input_drain=1;
+                    pthread_mutex_unlock(&fx_ui_lock);continue;
+                }
                 if(fx_ui_view.settings_page==FX_SETTINGS_GRAPHICS&&!fx_high_allowed(fx_boot_patch_active,fx_ui_view.row)){
                     fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;fx_ui_view.message=FX_HIGH_LOCK_MESSAGE;
                     pthread_mutex_unlock(&fx_ui_lock);continue;
@@ -239,7 +262,7 @@ static void *fx_ui_main(void *arg) {
                 framebufferClose(&fb);fx_art_free(&art);__atomic_store_n(&fx_ui_owned,0,__ATOMIC_RELEASE);exit(0);
             }else fx_ui_view.screen=FX_HOME;
         }
-        if(fx_ui_view.screen==FX_GAMEPAD&&fx_ui_view.pad_test){}
+        if(fx_ui_view.check.visible||(fx_ui_view.screen==FX_GAMEPAD&&fx_ui_view.pad_test)){}
         else if(confirm)fx_sfx_play(fx_ui_view.screen==FX_FAILED?FX_ERROR:FX_CONFIRM,fx_ui_view.sound);
         else if(down&HidNpadButton_B)fx_sfx_play(FX_BACK,fx_ui_view.sound);
         else if(fx_ui_view.tile!=old_tile||fx_ui_view.row!=old_row||fx_ui_view.credit_page!=old_page)fx_sfx_play(FX_NAV,fx_ui_view.sound);
@@ -284,7 +307,6 @@ failed_fb:
 }
 static int fx_launcher_start(void) {
     int command,rc;pthread_attr_t attr;
-    if(!fx_startup_switch())return 0;
     if(pthread_attr_init(&attr)){
         fx_native_error("Unable to prepare the launcher thread.");return 0;
     }
@@ -299,7 +321,12 @@ static int fx_launcher_start(void) {
     fx_ui_created=1;
     for(;;){
         while(!(command=__atomic_load_n(&fx_ui_command,__ATOMIC_ACQUIRE)))svcSleepThread(10000000);
-        if(command<0){pthread_join(fx_ui_thread,NULL);fx_ui_created=0;return 0;}
+        if(command<0){pthread_join(fx_ui_thread,NULL);fx_ui_created=0;fx_art_free(&fx_check_art);return 0;}
+        if(command==2){
+            int expected=2;
+            if(!__atomic_compare_exchange_n(&fx_ui_command,&expected,0,0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))continue;
+            fx_startup_switch();continue;
+        }
         /* Main thread performs SD I/O while the UI keeps the loading spinner moving.
          * No guest can load either D3D9 copy until the complete transaction succeeds. */
         int renderer=fx_ui_view.renderer,selected=fx_ui_view.selected;

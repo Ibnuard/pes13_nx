@@ -20,5 +20,5 @@ static int fx_startup_check(struct fxr_job *job){
     return 1;
 }
 static int fx_high_allowed(int patch_active,int preset){return preset!=3||patch_active;}
-#define FX_HIGH_LOCK_MESSAGE "High requires an active FEXTendo Patch and the PES13 39-bit HOME tile. Reboot into FEXTendo Patch, or select Medium/Low."
+#define FX_HIGH_LOCK_MESSAGE "High requires an active FEXTendo Patch and the updated PES13-FEXTendo HOME tile. Reboot into FEXTendo Patch, or select Medium/Low."
 #endif

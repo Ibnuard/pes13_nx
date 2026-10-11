@@ -30,9 +30,9 @@ def apply(source, feature, base_version='0.3.9-kit15', version='0.3.9-lw1'):
          '    if(mode==FX_MEMORY_32_NO_ALIAS || (wine_nx_launch_memory_compatible() && fxt_low_window_preflight()))return 1;')
     edit(launch, 'FEXTendo requires 32-bit no-alias.', 'Use 32-bit no-alias, or verified 39-bit low-window with FEXTendo Patch.')
     edit(launch, 'Open PES13 using the supplied FEXTendo NSP on the HOME Menu.',
-         'Boot FEXTendo Patch, then open the supplied PES13 39-bit HOME tile.')
+         'Boot FEXTendo Patch, then open the updated PES13-FEXTendo HOME tile.')
     edit(launch, 'Install the FEXTendo NSP from github.com/Ibnuard/pes13_nx/releases.',
-         'Use the PES13 39-bit NSP with the matching FEXTendo Patch kernel/loader pair.')
+         'Use the updated PES13-FEXTendo NSP with the matching FEXTendo Patch kernel/loader pair.')
     edit(launch, 'Query results: %x / %x / %x / %x",',
          'Query results: %x / %x / %x / %x\\nPreflight: %s",')
     edit(launch, 'm->base_rc,m->size_rc,m->alias_rc,m->total_rc);',

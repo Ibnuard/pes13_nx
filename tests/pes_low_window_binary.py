@@ -121,6 +121,18 @@ class Logging(Production):
         else: super().hook(vm, pc, size, user)
 
 
+def check_osk_debug_gate(elf):
+    for enabled in (0, 1):
+        m = Logging(elf)
+        m.vm.mem_write(m.symbols['fx_keyboard_ready'], struct.pack('<I', 1))
+        m.call('fx_launch_debug_begin', enabled)
+        assert m.call('fx_osk_open', 0)
+        pending = bytes(m.vm.mem_read(m.symbols['fx_debug_pending'], 64*1024))
+        assert (b'[OSK] request' in pending) == bool(enabled)
+        del m; gc.collect()
+    print('PASS: OSK request diagnostics use the existing RAM queue only in Debug launch', flush=True)
+
+
 class PacingLogging(Logging):
     """Run actual report gates, with unavailable or supplied guest memory."""
     def __init__(self, path):
@@ -230,9 +242,25 @@ def main():
         assert all(src >= HIGH for src, length in m.maps.values())
         m.clear(); del m; gc.collect()
     print('PASS: Wine high backing/low views, protection, cleanup, section creation and failed-commit retry', flush=True)
+    allocation_trace_gate = False
     m = Logging(elf); m.check_stdio()
     assert m.sd_started == 1 and not m.notices
     m.call('fxt_low_window_report')
+    if 'horizon_guest_alloc_trace' in m.symbols:
+        # An impossible guest request still cannot touch a guest context or
+        # stack (none exists in this model) during a normal production launch.
+        m.call('horizon_guest_alloc_trace',0xff570000,0x2000,0xc0000017)
+        allocation_trace_gate = True
+    read_trace_gate = 'horizon_guest_read_dump' in m.symbols
+    if read_trace_gate:
+        m.call('horizon_guest_read_dump')
+    if 'horizon_guest_read_trace' in m.symbols:
+        # A deliberately invalid pointer must never be inspected in production.
+        m.call('horizon_guest_read_trace',0x80,1,32,32,0,0,1,0xffffffff)
+    if 'horizon_guest_read_begin' in m.symbols:
+        assert m.call('horizon_guest_read_begin',0xffffffff,0,1) == 0
+    if 'wine_nx_sd_file_identity' in m.symbols:
+        assert m.call('wine_nx_sd_file_identity',0xffffffff,1,256,1) == 0
     m.call('wine_nx_runtime_trace', 1); m.call('horizon_trace', 1)
     m.call('wine_nx_runtime_std_write', 2, 1, 1048576)
     m.call('fx_debug_file_tick'); m.call('fx_crash_bootstrap'); m.call('wine_nx_crash_exception', 1, 0xc0000005)
@@ -244,6 +272,7 @@ def main():
     assert bytes(m.vm.mem_read(m.symbols['fx_debug_ring'], 64*109)) == ring
     del m; gc.collect()
     print('PASS: normal launch/report/crash paths perform no diagnostic I/O; debug report enters RAM capture only when enabled', flush=True)
+    check_osk_debug_gate(elf)
     pacing_gate = live_gate = False
     m = PacingLogging(elf)
     if 'fx_low_window_diagnostics' in m.symbols:
@@ -295,6 +324,9 @@ def main():
     report = dict(passed=True, hardware_tested=False, elf_sha256=hashlib.sha256(data).hexdigest(),
         preflight_cases=preflights, startup_cases=startup, native_floor_checked=True, high_backing_checked=True,
         normal_launch_diagnostic_io_disabled=True,
+        osk_debug_gate_checked=True,
+        large_allocation_debug_gate_checked=allocation_trace_gate,
+        asset_read_debug_gate_checked=read_trace_gate,
         lw2_pacing_debug_gate_checked=pacing_gate,
         lw3_live_settings_and_vk_attribution_checked=live_gate,
         limitations='Actual ARM64 ELF under Unicorn; heap, services and SVC behavior are modeled. PES/Switch test still required.')

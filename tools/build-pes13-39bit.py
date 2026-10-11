@@ -13,10 +13,14 @@ import subprocess
 from fextendo_low_window import ROOT
 from pes_low_window_patches import apply, exact
 
-VERSION = '0.4.0'
-NRO = 'pes13-39bit.nro'
+VERSION = '0.4.1'
+BUILD_REVISION = 'keyboard-frame'
+NRO = 'pes13-fex.nro'
 FEATURES = ('fextendo_keyboard_switch.h', 'fextendo_keyboard_wine.h',
-            'fextendo_osk.h', 'fextendo_osk_switch.h', 'fextendo_osk_display.h', 'fextendo_settings.h')
+            'fextendo_keyboard_options.h','fextendo_presets.h',
+            'fextendo_osk.h', 'fextendo_osk_switch.h', 'fextendo_osk_display.h',
+            'fextendo_osk_ui.h', 'fextendo_osk_frame.h', 'fextendo_osk_vulkan.h',
+            'fextendo_keyboard_capture.h', 'fextendo_settings.h')
 
 
 def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
@@ -60,11 +64,14 @@ def main():
         shutil.copy2(ROOT/'src/runtime'/name, feature/'src/runtime'/name)
     from fextendo_startup_patches import apply as startup_apply
     startup_apply(source,feature/'src/runtime')
+    from fextendo_osk_patches import apply as osk_apply
+    osk_apply(source)
     from fextendo_startup_patches import FILES
     inputs=[
-        'tools/build-pes13-39bit.py','tools/pes_low_window_patches.py','tools/fextendo_commit_patches.py',
+        'tools/build-pes13-39bit.py','tools/pes_low_window_patches.py','tools/fextendo_commit_patches.py','tools/fextendo_osk_patches.py',
         'src/runtime/horizon_commit.h','src/runtime/horizon_memory_failure.h','tools/fextendo_startup_patches.py',
         'src/runtime/fextendo_ui.h','src/runtime/fextendo_launcher.h',
+        'tools/fextendo_startup_assets.py','assets/startup/font.dat','assets/startup/wordmark.rgba',
         *['src/runtime/'+n for n in FILES],
         'src/experimental/low_window/pes_low_window.c','src/experimental/low_window/pes_low_window.h',
         *['src/runtime/'+n for n in FEATURES]]
@@ -77,7 +84,7 @@ def main():
     atomic_commit(source, ROOT)
     runtime = source/'wine-nx-probe/source/runtime.c'
     text = runtime.read_text()
-    text = exact(text, '[STARTUP] FEXTendo 0.3.8-r6 /', '[STARTUP] FEXTendo '+VERSION+' /')
+    text = exact(text, '[STARTUP] FEXTendo 0.3.8-r6 /', '[STARTUP] FEXTendo '+VERSION+' '+BUILD_REVISION+' /')
     runtime.write_text(text)
     after, new_feature = inventory(source), inventory(feature)
     write(a.work/'prepared.json', {'baseline_receipt_sha256': sha(a.base/'build-report.json'),
@@ -102,15 +109,18 @@ def main():
         '-DPES13_LIBNX_EXCEPTION_OBJECT='+str(a.cache/'fex-experiment/wine3/libnx-exception.o'),
         '-DCMAKE_BUILD_TYPE=Release'])
     run(['cmake','--build',build,'--target','wine-nx-runtime','-j',a.jobs])
-    elf, nro, nacp = build/'wine-nx-runtime.elf', a.work/NRO, a.work/'pes13-39bit.nacp'
-    run([sdk/'tools/bin/nacptool','--create','PES13 - FEXTendo 39-bit','AndroSwitch Project',VERSION,nacp])
+    elf, nro, nacp = build/'wine-nx-runtime.elf', a.work/NRO, a.work/'pes13-fex.nacp'
+    run([sdk/'tools/bin/nacptool','--create','PES13-FEXTendo','AndroSwitch Project',VERSION,nacp])
     run([sdk/'tools/bin/elf2nro',elf,nro,'--nacp='+str(nacp),
         '--icon='+str(a.base/'approved/source/assets/fextendo-v3/nro-icon.jpg')])
-    for marker in (b'[PES13-LOWVA] v1',VERSION.encode(),b'FEXTendo | Startup checks',b'High requires an active FEXTendo Patch'):
+    for marker in (b'[PES13-LOWVA] v1',VERSION.encode(),b'Checking your installation before you play.',b'High requires an active FEXTendo Patch'):
         assert marker in nro.read_bytes(), marker
+    for marker in (b'[ALLOC32]',b'[ASSET-OPEN]',b'[ASSET-READ]',b'[ASSET-FD]',b'[ASSET-VERIFY]'):
+        assert marker not in nro.read_bytes(), 'Retired asset diagnostic: '+str(marker)
+    assert not any(n.startswith('src/fex/') and old_feature.get(n)!=h for n,h in new_feature.items())
     assert inventory(source) == after and inventory(feature) == new_feature
     assert input_hashes=={n:sha(ROOT/n) for n in inputs},'Source changed during build; use a fresh build'
-    write(a.work/'build.json', {'built':True,'hardware_tested':False,'version':VERSION,
+    write(a.work/'build.json', {'built':True,'hardware_tested':False,'version':VERSION,'build_revision':BUILD_REVISION,
         'edition':'original-39bit','abi':'fxtmem-v1','nro_filename':NRO,
         'nro_sha256':sha(nro),'elf_sha256':sha(elf),'baseline_nro_sha256':approved,
         'baseline_receipt_sha256':sha(a.base/'build-report.json'),

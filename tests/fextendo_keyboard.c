@@ -171,7 +171,8 @@ static void reset(void){
     fx_keyboard_phase=FX_KBD_IDLE;fx_keyboard_blocked=0;
     fx_keyboard_canceled=fx_keyboard_manual_pending=0;
     memset(fx_keyboard_chords,0,sizeof(fx_keyboard_chords));
-    fx_keyboard_options=(struct fx_keyboard_options){0};fx_keyboard_manual_deadline=0;
+    /* The legacy hold scenarios below explicitly select the former delay. */
+    fx_keyboard_options=(struct fx_keyboard_options){.hold_ms=600};fx_keyboard_manual_deadline=0;
     fx_keyboard_delivery_done();
     focus_mode=3;focus_changes=focus_fail=restore_fail=show_calls=fx_keyboard_applet_active=0;
     memset(fx_samples,0,sizeof(fx_samples));fx_samples[0].connected=fx_samples[1].connected=1;
@@ -267,7 +268,7 @@ int main(void){
     fx_samples[0].buttons=0;fx_keyboard_poll_locked();fx_keyboard_service();pump();drain();
     assert(event_count==strlen(typed)*2+4); /* Shift down/up for N and S */
     assert(!fx_keyboard_input_blocked());
-    /* Short presses never swallow input. All enabled choices require a hold;
+    /* Short presses never swallow input when a hold is selected;
      * single Joy-Con always has its SL/SR + stick equivalent. */
     const unsigned styles[]={FX_PAD_FULL,FX_PAD_LEFT,FX_PAD_RIGHT};
     for(unsigned choice=0;choice<4;choice++)for(unsigned i=0;i<3;i++)for(unsigned player=0;player<1;player++){

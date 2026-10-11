@@ -4,3 +4,4 @@ int fx_runtime_recover(struct fxr_job *job){return fxr_recover(job);}
 int fx_runtime_check(struct fxr_job *job){return fxr_check(job);}
 int fx_runtime_repair(struct fxr_job *job){return fxr_repair(job);}
 unsigned fx_runtime_file_count(void){return FXR_COUNT;}
+const char *fx_runtime_catalog_id(void){return FXR_ARCHIVE_SHA;}

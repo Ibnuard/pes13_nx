@@ -14,7 +14,7 @@ import shutil
 import struct
 import subprocess
 import tempfile
-from fextendo_low_window import ROOT, SOURCE, exact, descriptor
+from fextendo_low_window import ROOT, SOURCE, exact, descriptor, automatic_descriptor
 
 TARGET = '/switch/fextendo-memory-probe/fextendo-memory-probe.nro'
 TAGS = ('control', 'optin-a', 'optin-b')
@@ -54,13 +54,15 @@ def build_probe(work, output, sdk, env):
 
 
 def pack(tag, args, sdk, env, hbl, icon, nacp, base, checks, *,
-         target=TARGET, label=None, npdm_name='FXTMemProbe', output_name=None):
+         target=TARGET, label=None, npdm_name='FXTMemProbe', output_name=None, fixed_title_id=None,
+         title_version=0, automatic=False):
     work = args.work / tag
     for folder in ('exefs', 'romfs', 'control'): (work / folder).mkdir(parents=True, exist_ok=True)
-    tid = title_id(tag, target)
+    tid = title_id(tag, target) if fixed_title_id is None else fixed_title_id
+    assert isinstance(tid,int) and 0<tid<1<<64 and not tid&0xfff
     npdm = json.loads((hbl / 'forwarder.json').read_text())
-    npdm.update(name=npdm_name, address_space_type=3, title_id=hex(tid),
-                title_id_range_min=hex(tid), title_id_range_max=hex(tid), system_resource_size='0x1000000')
+    npdm.update(name=npdm_name, address_space_type=2 if automatic else 3, title_id=hex(tid),
+                title_id_range_min=hex(tid), title_id_range_max=hex(tid), system_resource_size='0' if automatic else '0x1000000')
     write_json(work / 'forwarder.json', npdm)
     nacp = bytearray(nacp)
     label = (label or 'FEXTendo Memory ' + tag.upper()).encode()
@@ -75,10 +77,11 @@ def pack(tag, args, sdk, env, hbl, icon, nacp, base, checks, *,
     (work / 'romfs/nextNroPath').write_text(target)
     (work / 'romfs/nextArgv').write_text(target + ' ' + tag)
     shutil.copy2(args.work / 'forwarder.nso', work / 'exefs/main')
-    if tag != 'control': (work / 'exefs/fxtmem').write_bytes(descriptor())
+    if automatic: (work / 'exefs/fxtauto').write_bytes(automatic_descriptor())
+    elif tag != 'control': (work / 'exefs/fxtmem').write_bytes(descriptor())
     run(sdk / 'tools/bin/npdmtool', work / 'forwarder.json', work / 'exefs/main.npdm', env=env)
-    parsed = base.check_npdm((work / 'exefs/main.npdm').read_bytes(), 39, tid)
-    assert struct.unpack_from('<I', (work / 'exefs/main.npdm').read_bytes(), 0x14)[0] == 16777216
+    parsed = base.check_npdm((work / 'exefs/main.npdm').read_bytes(), 32 if automatic else 39, tid)
+    assert struct.unpack_from('<I', (work / 'exefs/main.npdm').read_bytes(), 0x14)[0] == (0 if automatic else 16777216)
     selected = {}
     for line in args.keys.read_text().splitlines():
         name, separator, value = line.partition('=')
@@ -88,11 +91,13 @@ def pack(tag, args, sdk, env, hbl, icon, nacp, base, checks, *,
             if not re.fullmatch('[0-9a-fA-F]{' + str(size) + '}', value): raise ValueError('Invalid packing key')
             selected[name] = value
     if len(selected) != 2: raise ValueError('Required local packing keys missing')
+    from fextendo_nsp_version import prepare_packer
+    packer = prepare_packer(args.packer, work, title_version)
     with tempfile.TemporaryDirectory(prefix='fxtmem-pack-') as folder:
         keys = Path(folder) / 'keys.dat'
         keys.touch(mode=0o600)
         keys.write_text(''.join(f'{k} = {v}\n' for k, v in selected.items()))
-        result = subprocess.run([str(args.packer / 'hacbrewpack'), '--keyset', str(keys), '--titleid', f'{tid:016x}',
+        result = subprocess.run([str(packer), '--keyset', str(keys), '--titleid', f'{tid:016x}',
             '--nologo', '--nopatchnacplogo', '--plaintext', '--keepncadir'], cwd=work, capture_output=True)
     if result.returncode: raise RuntimeError('NSP packaging failed; output suppressed to protect key material')
     blob = (work / 'hacbrewpack_nsp' / f'{tid:016x}.nsp').read_bytes()
@@ -101,7 +106,7 @@ def pack(tag, args, sdk, env, hbl, icon, nacp, base, checks, *,
     for name, content in ncas.items(): assert hashlib.sha256(content).hexdigest()[:32] == name.split('.')[0]
     # Inspect the actual ExeFS PFS0, not merely an incidental matching byte string
     # elsewhere in the NSP. Marker presence/absence is part of the regression test.
-    matching = []
+    matching, metadata = [], []
     for nca in ncas.values():
         at = 0
         while True:
@@ -110,20 +115,29 @@ def pack(tag, args, sdk, env, hbl, icon, nacp, base, checks, *,
             try:
                 files = checks.pfs_files(nca[at:])
                 if 'main.npdm' in files: matching.append(files)
+                metadata.extend(data for name, data in files.items() if name.endswith('.cnmt'))
             except (AssertionError, ValueError, struct.error, UnicodeError): pass
             at += 4
     assert len(matching) == 1, 'Cannot identify packaged ExeFS'
+    assert len(metadata) == 1, 'Cannot identify packaged CNMT'
+    assert struct.unpack_from('<QI', metadata[0]) == (tid, title_version), 'Wrong installable title revision'
+    assert metadata[0][12] == 0x80, 'Expected an application, not an unrelated update title'
     exefs = matching[0]
     assert exefs['main'] == (work / 'exefs/main').read_bytes()
     assert exefs['main.npdm'] == (work / 'exefs/main.npdm').read_bytes()
-    assert (exefs.get('fxtmem') == descriptor()) if tag != 'control' else 'fxtmem' not in exefs
+    if automatic:
+        assert exefs.get('fxtauto') == automatic_descriptor() and 'fxtmem' not in exefs
+    else:
+        assert (exefs.get('fxtmem') == descriptor()) if tag != 'control' else 'fxtmem' not in exefs
+        assert 'fxtauto' not in exefs
     for name in ('control/control.nacp', 'control/icon_AmericanEnglish.dat', 'romfs/nextNroPath', 'romfs/nextArgv'):
         assert any((work / name).read_bytes() in content for content in ncas.values()), name
     destination = args.output / 'forwarders' / (output_name or 'FEXTendo-Memory-' + tag + '.nsp')
     destination.write_bytes(blob)
     shutil.copy2(work / 'forwarder.json', args.output / 'source' / (tag + '.json'))
     return {**parsed, 'tag': tag, 'nsp': destination.name, 'sha256': sha(destination),
-            'marker': 'fxtmem-v1' if tag != 'control' else None, 'packed_exefs_verified': True}
+            'marker': 'fxtauto-v1' if automatic else ('fxtmem-v1' if tag != 'control' else None), 'packed_exefs_verified': True,
+            'cnmt_version': title_version, 'packed_cnmt_verified': True}
 
 
 def main():

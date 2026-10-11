@@ -15,4 +15,5 @@ int fx_runtime_recover(struct fxr_job *job);
 int fx_runtime_check(struct fxr_job *job);
 int fx_runtime_repair(struct fxr_job *job);
 unsigned fx_runtime_file_count(void);
+const char *fx_runtime_catalog_id(void);
 #endif

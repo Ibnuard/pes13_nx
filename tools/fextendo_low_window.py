@@ -15,6 +15,9 @@ AUTORUN_REV = 'cbb0e4e6e7fa7f47f328d92441f51bfb507f266f'
 def descriptor():
     return struct.pack('<8sIIIIQ', b'FXTMEM\0\0', 1, 32, 1, 0, 0)
 
+def automatic_descriptor():
+    return struct.pack('<8sIIIIQ', b'FXTAUTO\0', 1, 32, 1, 0, 0)
+
 
 def exact(text, old, new):
     if text.count(old) != 1:

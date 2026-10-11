@@ -57,6 +57,12 @@ def apply(source, project):
         horizon_memory_failure(2, addr, NULL, size, 0);
     }
     return reservation;''')
+    begin = s.index('static int unmap_code_memory_range( void *addr, void *source, size_t size )\n{')
+    end = s.index('\nstatic struct horizon_backing *create_backing_locked', begin)
+    part = s[begin:end]
+    assert part.count('        errno = EINVAL;') == 1
+    part = part.replace('        errno = EINVAL;', '        errno = EINVAL;\n        horizon_memory_failure(6, addr, source, size, rc);')
+    s = s[:begin] + part + s[end:]
     p.write_text(s)
     changed.add('dlls/ntdll/unix/horizon.c')
     return changed

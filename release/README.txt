@@ -1,41 +1,37 @@
-FEXTendo / PES13-NX - complete SD package
+PES13-FEXTendo v0.4.1 - complete SD package
 
-1. Extract switch/ to the root of the Switch SD card. Preserve its folders.
+1. Extract switch/ to the root of the Switch SD card, preserving folders.
 2. Copy your own installed PES 2013 PC v1.0 into:
    switch/pes13-fex/drive_c/PES13/
-   Include pes2013.exe, the game's accompanying DLLs and img/ data.
+   Include pes2013.exe, accompanying game DLLs and the complete img/ data.
    Keep this package's d3d9.dll, dxvk.conf and pes2013.wine-nx.txt.
-3. On the Windows PC with your own PES installation, run
-   source/release/tools/export-metadata.py and copy the resulting private
-   pes13-install.reg into switch/pes13-fex/. This runtime still needs your
-   installation metadata; it is not supplied by the release.
-4. Install FEXTendo-PES13.nsp with your usual homebrew setup, then launch it.
-   The NSP forwards to /switch/pes13-fex/pes13-fex.nro. Keep the SD files.
-   It uses the same icon as the NRO, 32-bit no-alias address space, 4 cores
-   and svcDebug disabled.
+3. On your Windows PC, run source/release/tools/export-metadata.py and copy
+   your private pes13-install.reg into switch/pes13-fex/.
+4. Install PES13-FEXTendo.nsp and launch it from HOME.
+   Keep /switch/pes13-fex/pes13-fex.nro at that exact path.
+   Only one NRO and one forwarder are required. The forwarder uses stock
+   32-bit no-alias mode, or automatically uses the 39-bit low window when
+   the compatible FEXTendo Core Patch (1.1.0+) is active at boot.
+   Without that active patch, use Medium or lower; HIGH is disabled.
 
-Included: production r6 NRO, memory recovery, two controllers and live keyboard,
-pre-DFE FEX DLL, Wine runtime,
-DXVK renderers, launcher artwork/audio/fonts, all four graphics presets,
-and the default Medium 720p settings.dat with compatibility copies.
-Game and save directories are explicitly present even when empty.
-Your game files, installation code, gameplay saves, logs and caches are
-not included. Close the game before updating; back up your own settings.
+After the splash, GUI checks validate the installation and runtime, and can
+repair missing runtime files. Successful runtime verification is cached;
+Maintenance > Check runtime can recheck it. The repair catalog remains pinned
+to the compatible official v0.3.8-r9 DLL payload; it does not replace your game.
+This package is for the original game, not the separate Kitserver edition.
 
-The standalone NRO and NSP downloads are for updating an existing complete
-installation. New installations need the -sd.zip, not just those binaries.
-See manifest.json and SHA256SUMS for exact versions and hashes. Releases use
-PES13 FEXTendo V.0.3.8; automatic packages add a revision such as r42.
-CI checks package integrity and imports; it does not run Switch hardware tests.
-Two-player support includes full controllers and horizontal single Joy-Con.
-Select your shortcut and position in Settings > Keyboard. By default, hold
-L + R + L3; with a horizontal Joy-Con, hold SL + SR + its stick.
-The live editor uses English labels and
-controller sprites. See source/keyboard-v4/docs/FEXTENDO-NATIVE-KEYBOARD.md.
+Settings > Keyboard selects shortcut, activation delay and screen position.
+Keyboard navigation belongs to Player 1. Optional Capture activation can come
+from either controller. The keyboard is drawn into the game frame using the
+Autorun approach. The latest keyboard fix was confirmed working by the user;
+this does not certify every hardware, game patch or kernel combination.
 
-Sources, build evidence and third-party notices are included alongside switch/.
+Normal launch disables diagnostic file writes. Enable Show debug launch and
+use its tile to collect startup/error logs when reporting a problem. Functional
+saves, launcher settings and necessary runtime data may still be written.
 
-Normal launch does not write diagnostic logs. Enable Show debug launch in
-Settings and use the Debug launch tile to collect startup and error logs.
-Some users still report intermittent HIGH transition freezes; use Medium
-when affected and retain logs from Debug launch for investigation.
+New installations need FEXTendo-v0.4.1-sd.zip. Standalone NRO and NSP downloads
+update an existing complete installation. Close the application before updating
+and back up your own saves/settings. Game files, private registry metadata,
+saves, logs and caches are excluded. Sources, licenses and build/test evidence
+are included. manifest.json and SHA256SUMS identify the exact contents.
