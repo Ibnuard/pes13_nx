@@ -15,10 +15,10 @@ void __libnx_initheap(void){
     if(envHasHeapOverride()){
         base=envGetHeapOverrideAddr();size=envGetHeapOverrideSize();
     }else{
-        size=compatible?__nx_heap_size:32u*1024u*1024u;
+        size=compatible?__nx_heap_size:128u*1024u*1024u;
         if(!size)size=256u*1024u*1024u;
         Result rc=svcSetHeapSize(&base,size);
-        /* Rejection only needs a text screen. Do not abort before it for a
+        /* The checker/GUI needs artwork but no Wine allocations. Do not abort for a
          * 256-MiB request in an applet with a smaller memory allowance. */
         while(R_FAILED(rc)&&!compatible&&size>2u*1024u*1024u){
             size=(size/2)&~(size_t)(2u*1024u*1024u-1);

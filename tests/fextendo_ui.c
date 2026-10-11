@@ -11,7 +11,7 @@ int main(int argc,char **argv) {
     assert(argc==3);assert(fx_art_load(&art,argv[1]));
     uint32_t *buffer=calloc(1296*720,4);assert(buffer);
     struct fx_canvas c={buffer,1296,&art};
-    for(i=0;i<28;i++){
+    for(i=0;i<36;i++){
         v.settings_page=FX_SETTINGS_ROOT;
         v.screen=i<2?FX_HOME:i<4?FX_SETTINGS:i==4?FX_LOADING:FX_FAILED;
         v.tile=i==1;v.tile_mix=v.tile;v.sound=1;v.battery=82;v.wall_time=1800000000;v.last_played=v.wall_time-7200;v.row=i==3?3:0;v.selected=0;v.frame=32;v.saved=i==3;
@@ -34,6 +34,16 @@ int main(int argc,char **argv) {
         }
         if(i==25){v.screen=FX_SETTINGS;v.settings_page=FX_SETTINGS_ROOT;v.row=5;v.debug_launch=1;}
         if(i==26){v.screen=FX_HOME;v.tile=4;v.tile_mix=4;v.debug_launch=1;}
+        if(i>=28&&i<30){v.screen=FX_SETTINGS;v.settings_page=FX_SETTINGS_GRAPHICS;v.row=3;v.boot_patch=i==29;}
+        if(i>=30){
+            v.screen=FX_SETTINGS;v.settings_page=i==30?FX_SETTINGS_KEYBOARD:FX_SETTINGS_HOLD;
+            v.row=i==30?2:i==31?0:5;fx_keyboard_options.hold_ms=i==32?2000:0;
+        }
+        if(i>=33){
+            v.settings_page=i==33?FX_SETTINGS_SHORTCUT:i==34?FX_SETTINGS_KEYBOARD:FX_SETTINGS_HOLD;
+            v.row=i==33?FX_KEYBOARD_CAPTURE:i==34?2:3;
+            fx_keyboard_options.shortcut=FX_KEYBOARD_CAPTURE;fx_keyboard_options.hold_ms=1000;
+        }
         v.settings_scroll=fx_settings_scroll_target(v.row,v.settings_page);
         fx_render(&c,&v);
         if(i==27){
@@ -53,6 +63,21 @@ int main(int argc,char **argv) {
             for(x=1280;x<1296;x++)assert(buffer[y*1296+x]==0);
         }assert(!fclose(f));
     }
+    /* Startup is rendered with embedded art even without any SD assets. */
+    struct fx_art boot;assert(fx_boot_art_load(&boot));c.art=&boot;
+    for(i=0;i<4;i++){
+        struct fx_view b={.screen=FX_HOME,.frame=42,.boot_patch=1,
+            .check={.visible=1,.phase=FX_CHECK_RUNTIME,.percent=65,.memory_done=1,.game_done=1}};
+        if(i==0)b.splash_ms=800;
+        if(i==2){b.check.phase=FX_CHECK_DOWNLOAD;b.check.percent=28;}
+        if(i==3){b.check.failed=1;snprintf(b.check.error,sizeof(b.check.error),"Installation is not correct. Missing or incomplete img/dt07.img. Copy the complete game folder, then retry.");}
+        fx_render(&c,&b);snprintf(path,sizeof(path),"%s/startup-%d.ppm",argv[2],i);
+        FILE *f=fopen(path,"wb");assert(f);fprintf(f,"P6\n1280 720\n255\n");
+        for(y=0;y<720;y++)for(x=0;x<1280;x++){
+            uint32_t p=buffer[y*1296+x];unsigned char rgb[3]={p,p>>8,p>>16};fwrite(rgb,1,3,f);
+        }assert(!fclose(f));
+    }
+    fx_art_free(&boot);c.art=&art;
     /* Idle tiles and disabled Play must not change when the glow phase changes. */
     uint32_t *snapshot=malloc(1296*720*4);assert(snapshot);
     /* Outside Test Controls, input cannot animate either controller card. */
@@ -158,10 +183,15 @@ int main(int argc,char **argv) {
     assert(fx_debug_timestamp_save(argv[1],0));assert(!fx_debug_timestamp(argv[1]));
     /* Real navigation + persistence: entering groups must not apply a choice;
      * B goes back one level and retains the selected parent row. */
+    fx_keyboard_options=(struct fx_keyboard_options){1,1,2000};
     v=(struct fx_view){.screen=FX_SETTINGS,.selected=2,.renderer=1,.sound=1,.music=1};
     fx_settings_enter(&v,FX_SETTINGS_ROOT,0);
     assert(fx_settings_choose(&v,argv[1]));assert(v.settings_page==FX_SETTINGS_GRAPHICS&&v.row==2&&!v.saved);
     v.row=0;assert(fx_settings_choose(&v,argv[1]));assert(v.selected==0&&fx_selected(argv[1])==0&&v.saved);
+    v.row=3;v.boot_patch=0;assert(!fx_settings_choose(&v,argv[1]));assert(v.selected==0&&fx_selected(argv[1])==0);
+    assert(strstr(fx_settings_detail(&v,3),"LOCKED"));
+    v.boot_patch=1;assert(fx_settings_choose(&v,argv[1]));assert(v.selected==3&&fx_selected(argv[1])==3);
+    v.row=0;assert(fx_settings_choose(&v,argv[1]));assert(v.selected==0);
     v.row=1;assert(!fx_settings_choose(&v,"/dev/null/fextendo-test"));assert(v.selected==0);
     fx_settings_back(&v);assert(v.settings_page==FX_SETTINGS_ROOT&&v.row==0);
     v.row=1;assert(fx_settings_choose(&v,argv[1]));assert(v.settings_page==FX_SETTINGS_RENDERER&&v.row==1);
@@ -175,6 +205,24 @@ int main(int argc,char **argv) {
     v.row=1;assert(fx_settings_choose(&v,argv[1]));assert(v.settings_page==FX_SETTINGS_POSITION&&v.row==1);
     v.row=0;assert(fx_settings_choose(&v,argv[1]));assert(!fx_keyboard_options_load(argv[1]).top);
     fx_settings_back(&v);assert(v.settings_page==FX_SETTINGS_KEYBOARD&&v.row==1);
+    v.row=2;assert(fx_settings_choose(&v,argv[1]));assert(v.settings_page==FX_SETTINGS_HOLD);
+    v.row=3;assert(fx_settings_choose(&v,argv[1]));assert(fx_keyboard_options_load(argv[1]).hold_ms==1000);
+    assert(fx_settings_selected(&v,3)&&!fx_settings_selected(&v,0));
+    v.row=0;assert(!fx_settings_choose(&v,"/dev/null/fextendo-test"));assert(fx_keyboard_options.hold_ms==1000);
+    assert(fx_settings_choose(&v,argv[1]));assert(!fx_keyboard_options_load(argv[1]).hold_ms);
+    fx_settings_back(&v);assert(v.settings_page==FX_SETTINGS_KEYBOARD&&v.row==2);
+    assert(!strcmp(fx_settings_detail(&v,2),"Instant"));
+    v.row=0;assert(fx_settings_choose(&v,argv[1]));assert(v.settings_page==FX_SETTINGS_SHORTCUT);
+    v.row=FX_KEYBOARD_CAPTURE;assert(fx_settings_choose(&v,argv[1]));
+    assert(fx_keyboard_options_load(argv[1]).shortcut==FX_KEYBOARD_CAPTURE);
+    assert(fx_settings_selected(&v,FX_KEYBOARD_CAPTURE));
+    assert(strstr(fx_settings_detail(&v,FX_KEYBOARD_CAPTURE),"Either controller"));
+    fx_settings_back(&v);assert(v.settings_page==FX_SETTINGS_KEYBOARD&&v.row==0);
+    assert(!strcmp(fx_settings_detail(&v,2),"Short press (Capture)"));
+    v.row=2;assert(fx_settings_choose(&v,argv[1]));v.row=3;
+    assert(fx_settings_choose(&v,argv[1]));assert(fx_keyboard_options.hold_ms==1000);
+    assert(strstr(fx_settings_detail(&v,3),"Capture uses a short press"));
+    fx_settings_back(&v);
     fx_settings_back(&v);assert(v.settings_page==FX_SETTINGS_ROOT&&v.row==2);
     v.row=3;assert(fx_settings_choose(&v,argv[1]));assert(v.settings_page==FX_SETTINGS_AUDIO);
     assert(fx_settings_choose(&v,argv[1]));assert(!v.sound&&!fx_menu_sound(argv[1]));

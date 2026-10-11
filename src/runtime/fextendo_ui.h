@@ -14,7 +14,7 @@
 #define FX_WHITE FX_COLOR(242,248,252)
 #define FX_MUTED FX_COLOR(170,185,208)
 #define FX_BLUE FX_COLOR(51,194,255)
-#define FX_APP_VERSION "0.3.8-r6"
+#define FX_APP_VERSION "0.4.1"
 #define FX_RELEASE "v3.8-r4"
 #define FX_TILE_MIN 212
 #define FX_TILE_MAX 260
@@ -23,7 +23,8 @@
 #define FX_SPLASH_MS 2400
 #endif
 enum fx_screen { FX_HOME,FX_SETTINGS,FX_LOADING,FX_FAILED,FX_CREDITS,FX_GAMEPAD };
-struct fx_view { struct fx_pad_sample pads[2]; unsigned players; int pad_test; enum fx_screen screen;int tile,row,selected,saved,fatal,timestamp,sound,battery,charging,credit_page,music,renderer,settings_page,debug_launch;float tile_mix,settings_scroll;unsigned frame,splash_ms;uint64_t last_played,wall_time;const char *message; };
+#include "fextendo_startup_view.h"
+struct fx_view { struct fx_pad_sample pads[2]; struct fx_check_view check; unsigned players; int pad_test; enum fx_screen screen;int tile,row,selected,saved,fatal,timestamp,sound,battery,charging,credit_page,music,renderer,settings_page,debug_launch,boot_patch;float tile_mix,settings_scroll;unsigned frame,splash_ms;uint64_t last_played,wall_time;const char *message; };
 #include "fextendo_settings.h"
 struct fx_art { uint32_t *bg,*blur,*logo,*icon,*buttons,*gamepad,*wordmark,*settings_icon,*credits_icon,*gamepad_icon,*scene[FX_SCENES],*tiles[4][FX_TILE_MAX-FX_TILE_MIN+1];uint16_t spinner[43*43];float decay[4097];unsigned char *font;size_t font_size; };
 struct fx_canvas { uint32_t *pixels;int stride;const struct fx_art *art;int clip_top,clip_bottom,clip_left,clip_right; };
@@ -365,7 +366,7 @@ static void fx_credits_scene(struct fx_canvas *c,int page) {
     fx_hint(c,56,689,"L","Previous");fx_hint(c,255,689,"R","Next");
     fx_hint(c,427,689,"B","Back");fx_hint(c,950,689,"+","Exit");fx_hint(c,1084,689,"H","HOME");
 }
-static int fx_prepare_art(struct fx_art *a) {
+static void fx_prepare_motion(struct fx_art *a) {
     for(int i=0;i<=4096;i++)a->decay[i]=expf(-i/256.f);
     for(int y=-21;y<=21;y++)for(int x=-21;x<=21;x++){
         float distance=hypotf(x,y),angle=atan2f(y,x)+1.57079632679f;
@@ -374,6 +375,9 @@ static int fx_prepare_art(struct fx_art *a) {
         unsigned phase=(unsigned)(angle*256.f/6.28318530718f)&255;
         a->spinner[(y+21)*43+x+21]=(uint16_t)((coverage<<8)|phase);
     }
+}
+static int fx_prepare_art(struct fx_art *a) {
+    fx_prepare_motion(a);
     a->gamepad_icon=calloc(256*256,4);if(!a->gamepad_icon)return 0;
     /* Restrict the canvas so drawing helpers cannot escape the 256px icon. */
     struct fx_canvas icon_canvas={a->gamepad_icon,256,a,0,256,0,256};
@@ -466,12 +470,14 @@ static void fx_splash(struct fx_canvas *c,unsigned remaining) {
     if(width)fx_round(c,640-width/2,460,width,2,1,FX_BLUE,(unsigned)(170*fade));
 }
 #include "fextendo_gamepad_ui.h"
+#include "fextendo_startup_art.h"
 static void fx_render(struct fx_canvas *c,const struct fx_view *v) {
     int y,i;char status[96];
-    int scene_index=v->splash_ms?3:v->screen==FX_LOADING?2:v->screen==FX_CREDITS?4+(v->credit_page!=0):v->screen==FX_SETTINGS;
+    int scene_index=v->splash_ms?3:v->check.visible?0:v->screen==FX_LOADING?2:v->screen==FX_CREDITS?4+(v->credit_page!=0):v->screen==FX_SETTINGS;
     const uint32_t *scene=c->art->scene[scene_index];
     for(y=0;y<FX_H;y++)memcpy(c->pixels+y*c->stride,scene+y*FX_W,FX_W*4);
     if(v->splash_ms){fx_splash(c,v->splash_ms);return;}
+    if(v->check.visible){fx_check_draw(c,v);return;}
     if(v->screen==FX_LOADING){fx_spinner(c,640,462,v->frame);return;}
     fx_battery(c,v);
     if(v->screen==FX_CREDITS)return;
@@ -509,7 +515,7 @@ static void fx_render(struct fx_canvas *c,const struct fx_view *v) {
                 uint32_t *p=c->pixels+y*c->stride+x;*p=fx_blend(*p,scene[y*FX_W+x],alpha);
             }
         }
-        snprintf(status,sizeof(status),"%s  /  16:9  /  VSync ON",fx_preset_names[v->selected]);
+        snprintf(status,sizeof(status),"%s / Patch %s",fx_preset_names[v->selected],v->boot_patch?"active":"inactive");
         fx_text(c,643,623,status,0,FX_MUTED);
     }else{
         int rows=fx_settings_rows(v->settings_page);
@@ -548,7 +554,7 @@ static void fx_render(struct fx_canvas *c,const struct fx_view *v) {
             int thumb_y=216+(int)((332-thumb)*v->settings_scroll/((rows-3)*116.f));
             fx_round(c,1194,thumb_y,3,thumb,1,FX_COLOR(45,142,202),255);
         }
-        fx_text(c,418,589,v->saved?"Settings saved. Ready to play.":"16:9 widescreen  /  VSync ON",0,v->saved?FX_BLUE:FX_MUTED);
+        fx_text(c,418,589,v->saved?"Settings saved. Ready to play.":v->boot_patch?"FEXTendo Patch active  /  High unlocked":"FEXTendo Patch inactive  /  High locked",0,v->saved?FX_BLUE:FX_MUTED);
     }
     fx_hint(c,56,689,"A",v->screen==FX_SETTINGS?(fx_settings_group(v,v->row)?"Open":fx_settings_toggle(v,v->row)>=0?"Toggle":"Apply"):"Select");
     if(v->screen==FX_FAILED){

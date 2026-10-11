@@ -77,7 +77,11 @@ def main():
     if a.before:
         old=Delivery(a.before);old.start('hallo');old.drain()
         assert old.text_received()=='h' and old.pressed=={ord('H')}
-    m=Model(a.elf);before=m.state(0);m.begin(1)
+    m=Model(a.elf);before=m.state(0)
+    assert not m.call('fx_osk_open',1)
+    m.set('fx_keyboard_manual_player',1);m.set('fx_keyboard_manual_pending',1);m.pump()
+    assert m.get('fx_osk_phase')==0 and not m.get('fx_osk_blocking')
+    m.begin()
     for slot in (0,1):
         m.pads[slot]=(4,21,1,20000,0,0,0)
         state=m.state(slot);assert state[1]==1 and state[3:]==(0,)*7

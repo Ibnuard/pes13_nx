@@ -6,9 +6,9 @@ static void fx_test_live_key(unsigned vk,unsigned flags);
 #define main fx_native_regression_main
 #include "fextendo_keyboard.c"
 #undef main
-static int display_open,display_fail,display_draws,touch_on,touch_x,touch_y;
+static int display_open,display_fail,display_wait,display_draws,touch_on,touch_x,touch_y;
 static int fx_osk_display_show(const struct fx_osk_core *s,unsigned p,int single){
-    (void)s;(void)single;assert(p<2);if(display_fail)return 0;display_open=1;display_draws++;return 1;
+    (void)s;(void)single;assert(p<2);if(display_fail)return 0;display_open=1;display_draws++;return display_wait?2:1;
 }
 static void fx_osk_display_close(void){display_open=0;}
 static int fx_osk_touch(int *x,int *y){*x=touch_x;*y=touch_y;return touch_on;}
@@ -31,8 +31,8 @@ static void fx_test_live_key(unsigned vk,unsigned flags){
 }
 static void fresh(void){
     reset();edit_class=0;fx_osk_display_close();
-    memset(&fx_osk_state,0,sizeof(fx_osk_state));fx_osk_phase=FX_OSK_IDLE;fx_osk_blocking=0;
-    display_fail=display_draws=touch_on=enters=0;fx_keyboard_manual_player=0;
+    memset(&fx_osk_state,0,sizeof(fx_osk_state));fx_osk_phase=FX_OSK_IDLE;fx_osk_blocking=fx_osk_unclaimed=0;
+    display_fail=display_wait=display_draws=touch_on=enters=0;fx_keyboard_manual_player=0;
     strcpy(field,"Nunu");cursor=4;
 }
 static void step(void){ticks+=20;fx_osk_service();pump();}
@@ -53,23 +53,34 @@ static void close_keyboard(void){
     assert(!fx_osk_blocked()&&!display_open&&!fx_wine_text.overlay);
     for(unsigned i=0;i<256;i++)assert(!(keyboard_state[i]&0x80));
 }
-int main(void){
+#ifndef FX_TEST_OSK_MAIN
+#define FX_TEST_OSK_MAIN main
+#endif
+int FX_TEST_OSK_MAIN(void){
+    /* A published texture is not permission to type: wait for real Present. */
+    fresh();display_wait=1;assert(fx_osk_open(0));
+    fx_osk_service();pump();assert(fx_osk_phase==FX_OSK_PENDING);
+    press(0,FX_PAD_A);assert(!event_count&&!fx_osk_state.count&&!strcmp(field,"Nunu"));
+    display_wait=0;step();step();assert(fx_osk_phase==FX_OSK_OPEN);close_keyboard();
+    fresh();display_wait=1;assert(fx_osk_open(0));fx_osk_service();pump();
+    display_fail=1;fx_osk_service();assert(fx_osk_phase==FX_OSK_DRAIN);
+    fx_osk_service();assert(!fx_osk_blocked()&&!event_count); /* no present + no Wine pump */
     fresh();open_keyboard(0);
     for(int i=0;i<4;i++)press(0,FX_PAD_B);
     key('B',0);key('e',0);key('j',0);key('o',0);close_keyboard();
     assert(!strcmp(field,"Bejo")&&!enters); /* closes only after queued edits finish */
-    open_keyboard(1);assert(!strcmp(field,"Bejo"));
-    press(0,FX_PAD_B);assert(!fx_osk_state.count&&!strcmp(field,"Bejo")); /* P1 cannot drive P2 keyboard */
-    press(1,FX_PAD_L);press(1,FX_PAD_L);key(0,0x2e);key('J',0);finish_keys();
+    assert(!fx_osk_open(1));open_keyboard(0);assert(!strcmp(field,"Bejo"));
+    press(1,FX_PAD_B);assert(!fx_osk_state.count&&!strcmp(field,"Bejo")); /* P2 cannot drive P1 keyboard */
+    press(0,FX_PAD_L);press(0,FX_PAD_L);key(0,0x2e);key('J',0);finish_keys();
     assert(!strcmp(field,"BeJo"));
-    press(1,FX_PAD_PLUS);finish_keys();assert(enters==1);close_keyboard();
+    press(0,FX_PAD_PLUS);finish_keys();assert(enters==1);close_keyboard();
     fresh();open_keyboard(0);key(0,0x24);key(0,0x2e);key('B',0);key(0,0x23);finish_keys();
     assert(!strcmp(field,"Bunu")&&cursor==4);close_keyboard();
     /* A held opening chord must not type, move the caret or repeat. */
-    fresh();fx_samples[1].buttons=FX_PAD_L|FX_PAD_R|FX_PAD_LSTICK;fx_keyboard_poll_locked();pump();
+    fresh();fx_samples[0].buttons=FX_PAD_L|FX_PAD_R|FX_PAD_LSTICK;fx_keyboard_poll_locked();pump();
     ticks+=600;fx_keyboard_poll_locked();pump();
     for(int i=0;i<8;i++)step();assert(!fx_osk_state.armed&&!event_count);
-    fx_samples[1].buttons=0;step();assert(fx_osk_state.armed);close_keyboard();
+    fx_samples[0].buttons=0;step();assert(fx_osk_state.armed);close_keyboard();
     /* Focus loss, destruction, native focus loss and disconnect release Shift
      * and the current key, drop queued edits, and retain controller suppression
      * until neutral. No background typing or stuck key survives. */
@@ -84,15 +95,26 @@ int main(void){
         assert(!strcmp(field,"NunuH"));focus_state=1;game_paused=0;step();
         assert(!display_open&&!fx_osk_blocked());
     }
-    fresh();open_keyboard(0);uint64_t old=fx_wine_text.overlay;close_keyboard();open_keyboard(1);
+    fresh();open_keyboard(0);uint64_t old=fx_wine_text.overlay;close_keyboard();open_keyboard(0);
     fx_osk_abort(old);fx_osk_finished(old);assert(fx_osk_valid(fx_wine_text.overlay));close_keyboard();
     fresh();display_fail=1;fx_keyboard_manual_pending=1;pump();step();step();
-    assert(!fx_wine_text.overlay&&!fx_osk_blocked()&&!event_count); /* safe VI failure */
+    assert(!fx_wine_text.overlay&&!fx_osk_blocked()&&!event_count); /* safe presentation failure */
+    /* A game may stop pumping window events after claiming the shortcut.
+     * Failure before the first frame must still restore P1 natively. */
+    fresh();display_fail=1;fx_keyboard_manual_pending=1;pump();
+    uint64_t failed_token=fx_wine_text.overlay;assert(failed_token&&!fx_osk_unclaimed);
+    fx_osk_service();assert(fx_osk_phase==FX_OSK_DRAIN);
+    fx_samples[0].buttons=FX_PAD_PLUS;fx_osk_service();assert(fx_osk_blocked());
+    fx_samples[0].buttons=0;fx_samples[1].buttons=FX_PAD_A;fx_osk_service();
+    assert(!fx_osk_blocked()&&!event_count); /* no Wine pump and P2 held */
+    display_fail=0;uint64_t next_token=fx_osk_open(0);assert(next_token&&next_token!=failed_token);
+    fx_osk_finished(failed_token);fx_osk_display_failed(failed_token);assert(fx_osk_valid(next_token));
+    fresh();
     fresh();open_keyboard(0);assert(!fx_keyboard_request(&(struct fx_text_request){.window=10,.thread=1,.limit=32}));
     close_keyboard();edit_class=1;pump();assert(fx_wine_text.token&&!fx_wine_text.overlay);
     fx_keyboard_service();pump();assert(replacements==1&&opens==1); /* standard Edit retains native prefill */
     fresh();open_keyboard(0);fx_osk_activate(&fx_osk_state,FX_OSK_CELLS-1);fx_samples[1].buttons=FX_PAD_A;
-    step();step();assert(fx_osk_blocked()&&!display_open);
+    step();step();assert(!fx_osk_blocked()&&!display_open);
     fx_samples[1].buttons=0;step();assert(!fx_osk_blocked());
     /* Touch positions follow top/bottom placement, and holding a touch does
      * not repeat letters. Moving by Y is usable on every normalized pad. */
@@ -100,7 +122,7 @@ int main(void){
     step();step();touch_on=0;finish_keys();assert(!strcmp(field,"Nunua"));
     press(0,FX_PAD_Y);assert(fx_osk_state.top);touch_on=1;touch_y=FX_OSK_KEY_TOP+2*FX_OSK_ROW_STEP+10;
     step();touch_on=0;finish_keys();assert(!strcmp(field,"Nunuaa"));close_keyboard();
-    fresh();fx_keyboard_options.top=1;open_keyboard(1);assert(fx_osk_state.top);close_keyboard();
+    fresh();fx_keyboard_options.top=1;open_keyboard(0);assert(fx_osk_state.top);close_keyboard();
     struct fx_osk_core s={.armed=1};struct fx_pad_sample pad={.connected=1};
     for(int i=0;i<FX_OSK_QUEUE;i++)assert(fx_osk_enqueue(&s,(struct fx_osk_key){'a',0}));
     assert(!fx_osk_enqueue(&s,(struct fx_osk_key){'b',0})&&s.full&&s.count==FX_OSK_QUEUE);
@@ -116,4 +138,5 @@ int main(void){
         fx_osk_input(&s,&pad,0,0,0,0,20);assert(s.count==1&&s.queue[0].character=='s');
     }
     puts("PASS: live Nunu -> Bejo, middle edits, Enter/close, focus/reconnect release, P1/P2 ownership, native Edit, touch, queue/repeat, horizontal controls");
+    return 0;
 }

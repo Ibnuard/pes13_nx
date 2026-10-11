@@ -26,6 +26,19 @@ SETTINGS = ('drive_c/KONAMI/Pro Evolution Soccer 2013/settings.dat',
             'drive_c/users/steamuser/Documents/KONAMI/Pro Evolution Soccer 2013/settings.dat')
 
 
+def production_lock_path(root=ROOT):
+    """The build baseline stays immutable; distribution pins its own input."""
+    active = root / 'release/production-lock.json'
+    return active if active.exists() else root / 'release/runtime-lock.json'
+
+
+def forwarder_name(lock):
+    name = lock.get('forwarder_filename', NSP)
+    if name not in (NSP, 'PES13-FEXTendo.nsp'):
+        raise ValueError('Unexpected production forwarder filename')
+    return name
+
+
 def sha(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -47,10 +60,11 @@ def fingerprints(root=ROOT):
     paths += [p for p in (root / 'tools').glob('*') if p.is_file()
               and ('patch' in p.name or p.name.startswith(('build-', 'bootstrap-', 'fex2_prepare')))]
     paths += [root / 'dependencies.json', root / 'assets/fextendo-v3/nro-icon.jpg']
+    paths += list((root / 'assets/startup').glob('*'))
     # Match Git's eol=lf for build text. Binary assets remain byte-exact.
     def source_hash(p):
         data = p.read_bytes()
-        if p.suffix in ('.c', '.h', '.cpp', '.hpp', '.py', '.sh', '.patch'):
+        if p.suffix in ('.c', '.h', '.cpp', '.hpp', '.inc', '.py', '.sh', '.patch'):
             data = data.replace(b'\r\n', b'\n')
         return sha(data)
     return {p.relative_to(root).as_posix(): source_hash(p) for p in sorted(paths)
@@ -100,6 +114,7 @@ def write_zip(path, files, directories=()):
 
 
 def verify_payload(files, lock):
+    nsp = forwarder_name(lock)
     for name in files:
         safe_name(name)
         low = name.lower()
@@ -109,7 +124,7 @@ def verify_payload(files, lock):
             # Sources and build receipts may describe old experiments; never ship their payloads.
             if not name.startswith(('source/', 'evidence/')):
                 raise ValueError('Unexpected distributed file: ' + name)
-    for n in (NRO, NSP, FEX, PREFIX + 'configuration.ini', PREFIX + 'launcher/font.bin',
+    for n in (NRO, nsp, FEX, PREFIX + 'configuration.ini', PREFIX + 'launcher/font.bin',
               PREFIX + 'launcher/background.rgba', PREFIX + 'drive_c/PES13/d3d9.dll',
               PREFIX + 'share/wine/nls/locale.nls', *[PREFIX + n for n in SETTINGS]):
         if n not in files:
@@ -118,19 +133,29 @@ def verify_payload(files, lock):
         if sha(files[n]) != digest:
             raise ValueError('Changed approved binary: ' + n)
     metadata = inspect_nro(files[NRO], (ROOT / 'assets/fextendo-v3/nro-icon.jpg').read_bytes(),
-                           expected_title='PES13 - FEXTendo', expected_version=lock['runtime_version'])
-    forwarder = json.loads(files['evidence/forwarder/build.json'])
-    if (forwarder['nsp_sha256'] != sha(files[NSP])
-            or forwarder['icon_sha256'] != metadata['icon_sha256']
-            or forwarder['address_space'] != '32-bit no-alias'
-            or forwarder['cpu_cores'] != 4 or forwarder['svc_debug'] is not False
-            or forwarder['nro_path'] != 'sdmc:/switch/pes13-fex/pes13-fex.nro'):
-        raise ValueError('Forwarder identity/capabilities differ from approved NRO')
-    spec = importlib.util.spec_from_file_location('forwarder', ROOT / 'tools/build-fextendo-forwarder.py')
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    if {n: sha(d) for n, d in module.pfs_files(files[NSP]).items()} != forwarder['nca_files']:
-        raise ValueError('Forwarder NCA hashes differ from verified build')
+                           expected_title=lock.get('nro_title', 'PES13 - FEXTendo'), expected_version=lock['runtime_version'])
+    if lock.get('forwarder_kind') == 'fxtauto-v1':
+        forwarder = json.loads(files['evidence/forwarder-auto/build.json'])
+        spec = importlib.util.spec_from_file_location('auto_metadata', ROOT / 'tests/pes13_forwarder_metadata.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        auto_metadata = module.inspect_forwarder(files[nsp], forwarder)
+        if (not auto_metadata['passed'] or auto_metadata['nacp_version'] != lock['runtime_version']
+                or nsp != 'PES13-FEXTendo.nsp'):
+            raise ValueError('Automatic forwarder differs from approved NRO')
+    else:
+        forwarder = json.loads(files['evidence/forwarder/build.json'])
+        if (forwarder['nsp_sha256'] != sha(files[nsp])
+                or forwarder['icon_sha256'] != metadata['icon_sha256']
+                or forwarder['address_space'] != '32-bit no-alias'
+                or forwarder['cpu_cores'] != 4 or forwarder['svc_debug'] is not False
+                or forwarder['nro_path'] != 'sdmc:/switch/pes13-fex/pes13-fex.nro'):
+            raise ValueError('Forwarder identity/capabilities differ from approved NRO')
+        spec = importlib.util.spec_from_file_location('forwarder', ROOT / 'tools/build-fextendo-forwarder.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        if {n: sha(d) for n, d in module.pfs_files(files[nsp]).items()} != forwarder['nca_files']:
+            raise ValueError('Forwarder NCA hashes differ from verified build')
     options = dict(line.strip().split('=', 1) for line in files[PREFIX + 'configuration.ini'].decode().splitlines()
                    if '=' in line and not line.lstrip().startswith('#'))
     if options.get('run_guest_tests') != '0' or options.get('production') != '1':
@@ -170,12 +195,13 @@ def verify_payload(files, lock):
     return {'nro': metadata, 'imports_checked': reports, 'hardware_tested': False}
 
 
-def assemble(runtime, output, version, commit, lock_path=ROOT / 'release/runtime-lock.json'):
+def assemble(runtime, output, version, commit, lock_path=None):
     if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}', version):
         raise ValueError('Invalid package version')
     if not re.fullmatch(r'[0-9a-f]{40}', commit):
         raise ValueError('Expected full source commit SHA')
-    lock = json.loads(lock_path.read_text())
+    lock = json.loads((lock_path or production_lock_path()).read_text())
+    nsp = forwarder_name(lock)
     verify_sources(lock)
     files = read_runtime(runtime, lock)
     directories = set()
@@ -205,6 +231,7 @@ def assemble(runtime, output, version, commit, lock_path=ROOT / 'release/runtime
     manifest = {'package_version': version, 'source_commit': commit, 'runtime_version': lock['runtime_version'],
                 'runtime_sha256': lock['sha256'], 'runtime_tag': lock['tag'],
                 'game_included': False, 'settings_included': True, 'checks': checks,
+                'forwarder_filename': nsp, 'device_confirmation': lock.get('device_confirmation'),
                 'directories': sorted(directories), 'files': {n: sha(d) for n, d in sorted(files.items())}}
     files['manifest.json'] = encoded(manifest)
     output.mkdir(parents=True, exist_ok=False)
@@ -217,7 +244,7 @@ def assemble(runtime, output, version, commit, lock_path=ROOT / 'release/runtime
         if not directories <= set(z.namelist()):
             raise ValueError('Empty directories lost during packaging')
     (output / 'pes13-fex.nro').write_bytes(files[NRO])
-    (output / NSP).write_bytes(files[NSP])
+    (output / nsp).write_bytes(files[nsp])
     (output / 'manifest.json').write_bytes(files['manifest.json'])
     (output / 'SHA256SUMS').write_text(''.join(sha(p.read_bytes()) + '  ' + p.name + '\n'
                                            for p in sorted(output.iterdir()) if p.is_file()))

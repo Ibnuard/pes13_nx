@@ -1,0 +1,9 @@
+{
+  "date": "2026-10-12",
+  "version": "0.4.1",
+  "build_revision": "keyboard-frame",
+  "nro_sha256": "8f8d1d32a97bd1c3d7788a1333628c6052b73747985877f8f090fc201b835b07",
+  "keyboard_confirmed_working": true,
+  "confirmation": "udah aman nih jadi tolong commit push dan jalanin pipelinenya",
+  "scope": "User confirmed the latest keyboard fix on Switch. This does not certify every preset, renderer, game patch or kernel version."
+}

@@ -16,11 +16,43 @@ import release_ci as ci
 
 
 class PackageTests(unittest.TestCase):
+    def test_distribution_lock_is_separate_and_does_not_fall_back_when_invalid(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'release').mkdir()
+            baseline = root / 'release/runtime-lock.json'
+            baseline.write_text('{"runtime_version":"0.3.8-r6"}')
+            self.assertEqual(package.production_lock_path(root), baseline)
+            active = root / 'release/production-lock.json'
+            active.write_text('invalid')
+            self.assertEqual(package.production_lock_path(root), active)
+            with self.assertRaises(json.JSONDecodeError):
+                json.loads(package.production_lock_path(root).read_text())
+            self.assertEqual(package.forwarder_name({'forwarder_filename': 'PES13-FEXTendo.nsp'}),
+                             'PES13-FEXTendo.nsp')
+            with self.assertRaises(ValueError):
+                package.forwarder_name({'forwarder_filename': '../other.nsp'})
+
+    def test_modern_release_asset_set(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            files = {'FEXTendo-v0.4.1-sd.zip': b'zip', 'pes13-fex.nro': b'nro',
+                     'PES13-FEXTendo.nsp': b'nsp', 'manifest.json': package.encoded({
+                         'package_version': 'v0.4.1', 'source_commit': 'a' * 40,
+                         'forwarder_filename': 'PES13-FEXTendo.nsp'})}
+            for n, data in files.items():
+                (root / n).write_bytes(data)
+            (root / 'SHA256SUMS').write_text(''.join(package.sha(d) + '  ' + n + '\n' for n, d in files.items()))
+            ci.validate_assets(root, 'v0.4.1', 'a' * 40)
+            (root / 'FEXTendo-PES13.nsp').write_bytes(b'legacy')
+            with self.assertRaisesRegex(ValueError, 'asset set'):
+                ci.validate_assets(root, 'v0.4.1', 'a' * 40)
+
     def test_source_line_endings_match_git_without_ignoring_content(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / 'src').mkdir()
-            source = root / 'src/runtime.c'
+            source = root / 'src/runtime.inc'
             source.write_bytes(b'int x;\r\n')
             lock = {'source_fingerprints': package.fingerprints(root)}
             source.write_bytes(b'int x;\n')
@@ -144,6 +176,10 @@ class PackageTests(unittest.TestCase):
                 self.assertEqual(out.read_text(), first + first)
                 self.assertEqual(ci.release_title('v0.3.7'), 'PES13 FEXTendo V.0.3.7')
                 self.assertEqual(ci.release_title('v0.3.7-r42'), 'PES13 FEXTendo V.0.3.7 (r42)')
+                (Path(temp) / 'release/production-lock.json').write_text(json.dumps({
+                    'runtime_version': '0.4.1', 'release_tag': 'v0.4.1'}))
+                ci.version()
+                self.assertTrue(out.read_text().endswith('version=v0.4.1\ncommit=' + 'a' * 40 + '\n'))
 
     def test_releases_reject_open_unmerged_wrong_branch_and_push_events(self):
         with tempfile.TemporaryDirectory() as temp:

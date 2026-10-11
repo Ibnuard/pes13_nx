@@ -171,7 +171,8 @@ static void reset(void){
     fx_keyboard_phase=FX_KBD_IDLE;fx_keyboard_blocked=0;
     fx_keyboard_canceled=fx_keyboard_manual_pending=0;
     memset(fx_keyboard_chords,0,sizeof(fx_keyboard_chords));
-    fx_keyboard_options=(struct fx_keyboard_options){0};fx_keyboard_manual_deadline=0;
+    /* The legacy hold scenarios below explicitly select the former delay. */
+    fx_keyboard_options=(struct fx_keyboard_options){.hold_ms=600};fx_keyboard_manual_deadline=0;
     fx_keyboard_delivery_done();
     focus_mode=3;focus_changes=focus_fail=restore_fail=show_calls=fx_keyboard_applet_active=0;
     memset(fx_samples,0,sizeof(fx_samples));fx_samples[0].connected=fx_samples[1].connected=1;
@@ -259,18 +260,18 @@ int main(void){
         assert(!fx_keyboard_input_blocked()&&!(keyboard_state[VK_SHIFT]&0x80));
     }
     reset();edit_class=0;
-    fx_samples[1]=fx_pad_normalize(FX_PAD_RIGHT,1,FX_PAD_SL|FX_PAD_SR|FX_PAD_RSTICK,0,0,0,0);
+    fx_samples[0]=fx_pad_normalize(FX_PAD_RIGHT,1,FX_PAD_SL|FX_PAD_SR|FX_PAD_RSTICK,0,0,0,0);
     fx_keyboard_poll_locked();ticks+=600;fx_keyboard_poll_locked();
     assert(!fx_keyboard_input_blocked()&&fx_keyboard_manual_pending);
     pump();assert(fx_wine_text.kind==4&&fx_wine_text.token);
     fx_keyboard_poll_locked();assert(!fx_keyboard_manual_pending); /* one per click */
-    fx_samples[1].buttons=0;fx_keyboard_poll_locked();fx_keyboard_service();pump();drain();
+    fx_samples[0].buttons=0;fx_keyboard_poll_locked();fx_keyboard_service();pump();drain();
     assert(event_count==strlen(typed)*2+4); /* Shift down/up for N and S */
     assert(!fx_keyboard_input_blocked());
-    /* Short presses never swallow input. All enabled choices require a hold;
+    /* Short presses never swallow input when a hold is selected;
      * single Joy-Con always has its SL/SR + stick equivalent. */
     const unsigned styles[]={FX_PAD_FULL,FX_PAD_LEFT,FX_PAD_RIGHT};
-    for(unsigned choice=0;choice<4;choice++)for(unsigned i=0;i<3;i++)for(unsigned player=0;player<2;player++){
+    for(unsigned choice=0;choice<4;choice++)for(unsigned i=0;i<3;i++)for(unsigned player=0;player<1;player++){
         reset();
         fx_keyboard_options.shortcut=choice;
         uint64_t shoulders=i?FX_PAD_SL|FX_PAD_SR:FX_PAD_L|FX_PAD_R;
@@ -289,6 +290,8 @@ int main(void){
         if(!i)fx_samples[player].buttons=fx_keyboard_chord_mask(choice,styles[i]);
         fx_keyboard_poll_locked();ticks+=600;fx_keyboard_poll_locked();assert(fx_keyboard_manual());
     }
+    reset();fx_samples[1].buttons=FX_PAD_L|FX_PAD_R|FX_PAD_LSTICK;
+    fx_keyboard_poll_locked();ticks+=600;fx_keyboard_poll_locked();assert(!fx_keyboard_manual());
     reset();fx_samples[0].buttons=FX_PAD_LSTICK;fx_keyboard_poll_locked();
     fx_samples[0].buttons|=FX_PAD_L|FX_PAD_R;fx_keyboard_poll_locked();
     assert(!fx_keyboard_manual()&&!fx_keyboard_input_blocked());

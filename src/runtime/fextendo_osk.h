@@ -107,6 +107,7 @@ static void fx_osk_input(struct fx_osk_core *s,const struct fx_pad_sample *p,
     s->touched=touching;
 }
 uint64_t fx_osk_open(unsigned player);
+uint64_t fx_osk_claim(void);
 int fx_osk_blocked(void);
 int fx_osk_valid(uint64_t token);
 int fx_osk_next(uint64_t token,struct fx_osk_key *key);

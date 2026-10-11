@@ -1,4 +1,4 @@
-/* LGPL-2.1-or-later. Draw only the compact VI keyboard surface. */
+/* LGPL-2.1-or-later. Draw the compact keyboard into native RGBA pixels. */
 #include "fextendo_osk_sprites.h"
 static void fx_osk_icon(struct fx_canvas *c,int x,int y,int id) {
     fx_image(c,fx_osk_sprites[id],40,40,x,y,32,32,0,255);

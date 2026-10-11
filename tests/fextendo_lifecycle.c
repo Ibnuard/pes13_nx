@@ -5,7 +5,8 @@
 #include <time.h>
 #include <stdlib.h>
 #include <stdarg.h>
-static int mode,preparing_renderer;
+static int mode,preparing_renderer,check_count,navigation_started;
+static int checking,check_failed,check_frames,failure_frames,modal_seen,retry_sent,maintenance_seen;
 #define FX_SPLASH_MS ((mode==5||mode==6)?2400:0)
 #include "../src/runtime/fextendo_presets.h"
 #include "../src/runtime/fextendo_renderers.h"
@@ -32,6 +33,7 @@ typedef struct {int unused;} ErrorApplicationConfig;
 #define HidNpadButton_L 2048
 #define HidNpadButton_R 4096
 #define HidNpadButton_Y 8192
+#define HidNpadButton_Minus 16384
 static const char *test_root,*test_target;static int created,closed,errors;
 #define RUNTIME_DIR test_root
 #define DEFAULT_TARGET test_target
@@ -39,7 +41,8 @@ static u64 armGetSystemTick(void){struct timespec t;clock_gettime(CLOCK_MONOTONI
 static u64 armTicksToNs(u64 t){return t;}
 static u64 armNsToTicks(u64 t){return t;}
 static void svcSleepThread(u64 n){struct timespec t={n/1000000000,n%1000000000};nanosleep(&t,0);}
-static int appletMainLoop(void){return !(mode==8&&__atomic_load_n(&preparing_renderer,__ATOMIC_ACQUIRE));}
+static int appletMainLoop(void){return !(mode==8&&__atomic_load_n(&preparing_renderer,__ATOMIC_ACQUIRE))&&
+    !(mode==12&&__atomic_load_n(&check_count,__ATOMIC_ACQUIRE));}
 static void *nwindowGetDefault(void){return NULL;}
 static int framebufferCreate(Framebuffer *f,void *w,int x,int y,int format,int count){
     (void)w;(void)format;(void)count;assert(!created++);f->owner=pthread_self();f->pixels=calloc(x*y,4);assert(f->pixels);return 0;
@@ -54,6 +57,22 @@ static void trace_view(int frame);
 static unsigned splash_seen;static int credits_seen,changelog_seen;
 static void padUpdate(PadState *p){p->index++;trace_view(p->index);}
 static u64 padGetButtonsDown(PadState *p){
+    if(mode>=9){
+        if(checking){
+            if(check_failed){
+                if(mode==10&&!retry_sent&&failure_frames>1){retry_sent=1;return HidNpadButton_A;}
+                if((mode==11||mode==13)&&failure_frames>1)return HidNpadButton_B;
+                return 0;
+            }
+            /* Try every route around the active modal. It must not dismiss. */
+            return check_frames%2?(HidNpadButton_A|HidNpadButton_B|HidNpadButton_Plus|HidNpadButton_Right):0;
+        }
+        if(mode==14&&!maintenance_seen){
+            static const u64 input[]={HidNpadButton_Right,0,HidNpadButton_A,0,HidNpadButton_Up,0,HidNpadButton_A,0,HidNpadButton_A};
+            return p->index>=0&&p->index<9?input[p->index]:0;
+        }
+        return p->index==2?HidNpadButton_Plus:0;
+    }
     if(mode==8)return p->index==0?HidNpadButton_A:0;
     if(mode==7){
         static const u64 input[]={HidNpadButton_Right,HidNpadButton_A,HidNpadButton_Up,0,0,HidNpadButton_A,HidNpadButton_B,HidNpadButton_Plus};
@@ -63,7 +82,7 @@ static u64 padGetButtonsDown(PadState *p){
         static const u64 input[]={HidNpadButton_Right,0,HidNpadButton_Right,HidNpadButton_A,HidNpadButton_R,HidNpadButton_L,HidNpadButton_B,HidNpadButton_Plus};
         return p->index<8?input[p->index]:0;
     }
-    if(mode==5)return p->index==2?HidNpadButton_A:p->index==8?HidNpadButton_Plus:0;
+    if(mode==5)return !navigation_started&&p->index==2?HidNpadButton_A:p->index==8?HidNpadButton_Plus:0;
     if(mode==6)return splash_seen&&p->index>155?HidNpadButton_Plus:0;
     if(mode==3){
         static const u64 input[]={HidNpadButton_Right,HidNpadButton_A,HidNpadButton_Up,0,HidNpadButton_Up,0,HidNpadButton_Up,0,HidNpadButton_Up,0,HidNpadButton_Up,0,0,HidNpadButton_A,HidNpadButton_B,0,HidNpadButton_Plus};
@@ -73,7 +92,19 @@ static u64 padGetButtonsDown(PadState *p){
     if(mode==2)return p->index==0||p->index==2?HidNpadButton_A:p->index==4?HidNpadButton_Plus:0;
     return p->index==0?HidNpadButton_A:0;
 }
-static u64 padGetButtons(PadState *p){if(mode==5&&p->index>=2&&p->index<6)return HidNpadButton_A;return padGetButtonsDown(p);}
+static u64 padGetButtons(PadState *p){if(mode==5&&(navigation_started||p->index>=2)&&p->index<6)return HidNpadButton_A;return padGetButtonsDown(p);}
+static PadState fx_model_pad;
+void fx_pads_init(void){padInitializeDefault(&fx_model_pad);}
+void fx_pads_snapshot(struct fx_pad_sample out[2]){
+    padUpdate(&fx_model_pad);
+    out[0]=fx_pad_normalize(FX_PAD_FULL,1,padGetButtons(&fx_model_pad),0,0,0,0);
+    out[1]=fx_pad_normalize(FX_PAD_FULL,0,0,0,0,0,0);
+}
+unsigned fx_pads_players(void){return 1;}
+int fx_pads_ready(void){return 1;}
+int fx_pads_capture_session(void){return 1;}
+int fx_pads_connect(void){return 1;}
+int fx_pads_begin_game(void){return 1;}
 static int errorApplicationCreate(ErrorApplicationConfig *c,const char *a,const char *b){(void)c;(void)a;(void)b;return 0;}
 static void errorApplicationShow(ErrorApplicationConfig *c){(void)c;errors++;}
 static void log_line(const char *f,...){(void)f;}
@@ -96,12 +127,38 @@ static int test_apply_renderer(const char *root,int selected){
     return fx_apply_renderer(root,selected);
 }
 #define fx_apply_renderer test_apply_renderer
+/* Model the services only; run the real checker, modal and UI/main ownership. */
+#include "../src/runtime/fextendo_launch_memory.h"
+#include "../src/runtime/fextendo_runtime_api.h"
+static struct fx_launch_memory fx_startup_memory={.base=0x200000,.size=(1ull<<39)-0x200000};
+static void fx_launch_memory_read(void){}
+static int fxt_low_window_layout(uint64_t b,uint64_t s){return b==0x200000&&b+s==(1ull<<39);}
+static int fxt_low_window_preflight(void){return 1;}
+int fx_runtime_recover(struct fxr_job *j){(void)j;return 1;}
+int fx_runtime_check(struct fxr_job *j){
+    int attempt=__atomic_add_fetch(&check_count,1,__ATOMIC_ACQ_REL);
+    for(int i=0;i<12;i++){j->progress(FXR_CHECK,i,12,"");svcSleepThread(5000000);if(j->cancelled())return 0;}
+    if((mode==10&&attempt==1)||mode==11){snprintf(j->error,sizeof(j->error),"Modeled download unavailable. Check Wi-Fi.");return 0;}
+    j->changed=0;return 1;
+}
+int fx_runtime_repair(struct fxr_job *j){(void)j;abort();}
+unsigned fx_runtime_file_count(void){return 1;}
+const char *fx_runtime_catalog_id(void){return "lifecycle-test";}
 #include "../src/runtime/fextendo_launcher.h"
 #undef fx_apply_renderer
 static void trace_view(int frame){
+    pthread_mutex_lock(&fx_ui_lock);
+    int was_checking=checking;
+    checking=fx_ui_view.check.visible;check_failed=fx_ui_view.check.failed;
+    if(checking){modal_seen=1;check_frames++;assert(!fx_boot_started);}
+    if(check_failed)failure_frames++;
+    if(mode==14&&checking&&navigation_started)maintenance_seen=1;
+    if(!fx_ui_view.check.visible&&!navigation_started){fx_model_pad.index=-2;navigation_started=1;}
+    else if(mode==14&&was_checking&&!checking)fx_model_pad.index=-2;
     if(fx_ui_view.splash_ms>splash_seen)splash_seen=fx_ui_view.splash_ms;
     if(fx_ui_view.screen==FX_CREDITS){credits_seen=1;if(fx_ui_view.credit_page)changelog_seen=1;}
     if((mode==5||mode==6)&&frame>5)assert(!fx_boot_started);
+    pthread_mutex_unlock(&fx_ui_lock);
 }
 
 int main(int argc,char **argv){
@@ -112,6 +169,12 @@ int main(int argc,char **argv){
         if(mode==3){assert(fx_ui_view.timestamp);assert(fx_debug_timestamp(test_root));assert(fx_ui_view.screen==FX_HOME);}
         if(mode==4){assert(credits_seen&&changelog_seen);assert(fx_ui_view.screen==FX_HOME&&fx_ui_view.tile==2);assert(!fx_boot_started);}
         if(mode==8){assert(preparing_renderer);assert(!fx_boot_started);}
+        if(mode>=9){assert(modal_seen&&!fx_boot_started);assert(check_frames>(mode==12?0:1));
+            if(mode==9)assert(navigation_started&&check_count==1);
+            if(mode==10)assert(navigation_started&&retry_sent&&failure_frames&&check_count==2);
+            if(mode==11||mode==13)assert(!navigation_started&&failure_frames&&check_count==1);
+            if(mode==12)assert(!navigation_started&&check_count==1);
+            if(mode==14)assert(navigation_started&&maintenance_seen&&check_count==2);}
         if(mode==7){
             assert(fx_ui_view.renderer==1&&fx_renderer_selected(test_root)==1);
             char p[768],b[2];snprintf(p,sizeof(p),"%s/launcher/renderer.txt",test_root);
