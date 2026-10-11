@@ -31,7 +31,7 @@ static void fx_test_live_key(unsigned vk,unsigned flags){
 }
 static void fresh(void){
     reset();edit_class=0;fx_osk_display_close();
-    memset(&fx_osk_state,0,sizeof(fx_osk_state));fx_osk_phase=FX_OSK_IDLE;fx_osk_blocking=0;
+    memset(&fx_osk_state,0,sizeof(fx_osk_state));fx_osk_phase=FX_OSK_IDLE;fx_osk_blocking=fx_osk_unclaimed=0;
     display_fail=display_draws=touch_on=enters=0;fx_keyboard_manual_player=0;
     strcpy(field,"Nunu");cursor=4;
 }
@@ -58,18 +58,18 @@ int main(void){
     for(int i=0;i<4;i++)press(0,FX_PAD_B);
     key('B',0);key('e',0);key('j',0);key('o',0);close_keyboard();
     assert(!strcmp(field,"Bejo")&&!enters); /* closes only after queued edits finish */
-    open_keyboard(1);assert(!strcmp(field,"Bejo"));
-    press(0,FX_PAD_B);assert(!fx_osk_state.count&&!strcmp(field,"Bejo")); /* P1 cannot drive P2 keyboard */
-    press(1,FX_PAD_L);press(1,FX_PAD_L);key(0,0x2e);key('J',0);finish_keys();
+    assert(!fx_osk_open(1));open_keyboard(0);assert(!strcmp(field,"Bejo"));
+    press(1,FX_PAD_B);assert(!fx_osk_state.count&&!strcmp(field,"Bejo")); /* P2 cannot drive P1 keyboard */
+    press(0,FX_PAD_L);press(0,FX_PAD_L);key(0,0x2e);key('J',0);finish_keys();
     assert(!strcmp(field,"BeJo"));
-    press(1,FX_PAD_PLUS);finish_keys();assert(enters==1);close_keyboard();
+    press(0,FX_PAD_PLUS);finish_keys();assert(enters==1);close_keyboard();
     fresh();open_keyboard(0);key(0,0x24);key(0,0x2e);key('B',0);key(0,0x23);finish_keys();
     assert(!strcmp(field,"Bunu")&&cursor==4);close_keyboard();
     /* A held opening chord must not type, move the caret or repeat. */
-    fresh();fx_samples[1].buttons=FX_PAD_L|FX_PAD_R|FX_PAD_LSTICK;fx_keyboard_poll_locked();pump();
+    fresh();fx_samples[0].buttons=FX_PAD_L|FX_PAD_R|FX_PAD_LSTICK;fx_keyboard_poll_locked();pump();
     ticks+=600;fx_keyboard_poll_locked();pump();
     for(int i=0;i<8;i++)step();assert(!fx_osk_state.armed&&!event_count);
-    fx_samples[1].buttons=0;step();assert(fx_osk_state.armed);close_keyboard();
+    fx_samples[0].buttons=0;step();assert(fx_osk_state.armed);close_keyboard();
     /* Focus loss, destruction, native focus loss and disconnect release Shift
      * and the current key, drop queued edits, and retain controller suppression
      * until neutral. No background typing or stuck key survives. */
@@ -84,7 +84,7 @@ int main(void){
         assert(!strcmp(field,"NunuH"));focus_state=1;game_paused=0;step();
         assert(!display_open&&!fx_osk_blocked());
     }
-    fresh();open_keyboard(0);uint64_t old=fx_wine_text.overlay;close_keyboard();open_keyboard(1);
+    fresh();open_keyboard(0);uint64_t old=fx_wine_text.overlay;close_keyboard();open_keyboard(0);
     fx_osk_abort(old);fx_osk_finished(old);assert(fx_osk_valid(fx_wine_text.overlay));close_keyboard();
     fresh();display_fail=1;fx_keyboard_manual_pending=1;pump();step();step();
     assert(!fx_wine_text.overlay&&!fx_osk_blocked()&&!event_count); /* safe VI failure */
@@ -92,7 +92,7 @@ int main(void){
     close_keyboard();edit_class=1;pump();assert(fx_wine_text.token&&!fx_wine_text.overlay);
     fx_keyboard_service();pump();assert(replacements==1&&opens==1); /* standard Edit retains native prefill */
     fresh();open_keyboard(0);fx_osk_activate(&fx_osk_state,FX_OSK_CELLS-1);fx_samples[1].buttons=FX_PAD_A;
-    step();step();assert(fx_osk_blocked()&&!display_open);
+    step();step();assert(!fx_osk_blocked()&&!display_open);
     fx_samples[1].buttons=0;step();assert(!fx_osk_blocked());
     /* Touch positions follow top/bottom placement, and holding a touch does
      * not repeat letters. Moving by Y is usable on every normalized pad. */
@@ -100,7 +100,7 @@ int main(void){
     step();step();touch_on=0;finish_keys();assert(!strcmp(field,"Nunua"));
     press(0,FX_PAD_Y);assert(fx_osk_state.top);touch_on=1;touch_y=FX_OSK_KEY_TOP+2*FX_OSK_ROW_STEP+10;
     step();touch_on=0;finish_keys();assert(!strcmp(field,"Nunuaa"));close_keyboard();
-    fresh();fx_keyboard_options.top=1;open_keyboard(1);assert(fx_osk_state.top);close_keyboard();
+    fresh();fx_keyboard_options.top=1;open_keyboard(0);assert(fx_osk_state.top);close_keyboard();
     struct fx_osk_core s={.armed=1};struct fx_pad_sample pad={.connected=1};
     for(int i=0;i<FX_OSK_QUEUE;i++)assert(fx_osk_enqueue(&s,(struct fx_osk_key){'a',0}));
     assert(!fx_osk_enqueue(&s,(struct fx_osk_key){'b',0})&&s.full&&s.count==FX_OSK_QUEUE);

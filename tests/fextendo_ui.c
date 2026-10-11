@@ -11,7 +11,7 @@ int main(int argc,char **argv) {
     assert(argc==3);assert(fx_art_load(&art,argv[1]));
     uint32_t *buffer=calloc(1296*720,4);assert(buffer);
     struct fx_canvas c={buffer,1296,&art};
-    for(i=0;i<28;i++){
+    for(i=0;i<30;i++){
         v.settings_page=FX_SETTINGS_ROOT;
         v.screen=i<2?FX_HOME:i<4?FX_SETTINGS:i==4?FX_LOADING:FX_FAILED;
         v.tile=i==1;v.tile_mix=v.tile;v.sound=1;v.battery=82;v.wall_time=1800000000;v.last_played=v.wall_time-7200;v.row=i==3?3:0;v.selected=0;v.frame=32;v.saved=i==3;
@@ -34,6 +34,7 @@ int main(int argc,char **argv) {
         }
         if(i==25){v.screen=FX_SETTINGS;v.settings_page=FX_SETTINGS_ROOT;v.row=5;v.debug_launch=1;}
         if(i==26){v.screen=FX_HOME;v.tile=4;v.tile_mix=4;v.debug_launch=1;}
+        if(i>=28){v.screen=FX_SETTINGS;v.settings_page=FX_SETTINGS_GRAPHICS;v.row=3;v.boot_patch=i==29;}
         v.settings_scroll=fx_settings_scroll_target(v.row,v.settings_page);
         fx_render(&c,&v);
         if(i==27){
@@ -162,6 +163,10 @@ int main(int argc,char **argv) {
     fx_settings_enter(&v,FX_SETTINGS_ROOT,0);
     assert(fx_settings_choose(&v,argv[1]));assert(v.settings_page==FX_SETTINGS_GRAPHICS&&v.row==2&&!v.saved);
     v.row=0;assert(fx_settings_choose(&v,argv[1]));assert(v.selected==0&&fx_selected(argv[1])==0&&v.saved);
+    v.row=3;v.boot_patch=0;assert(!fx_settings_choose(&v,argv[1]));assert(v.selected==0&&fx_selected(argv[1])==0);
+    assert(strstr(fx_settings_detail(&v,3),"LOCKED"));
+    v.boot_patch=1;assert(fx_settings_choose(&v,argv[1]));assert(v.selected==3&&fx_selected(argv[1])==3);
+    v.row=0;assert(fx_settings_choose(&v,argv[1]));assert(v.selected==0);
     v.row=1;assert(!fx_settings_choose(&v,"/dev/null/fextendo-test"));assert(v.selected==0);
     fx_settings_back(&v);assert(v.settings_page==FX_SETTINGS_ROOT&&v.row==0);
     v.row=1;assert(fx_settings_choose(&v,argv[1]));assert(v.settings_page==FX_SETTINGS_RENDERER&&v.row==1);

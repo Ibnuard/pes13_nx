@@ -7,6 +7,7 @@
 #define FX_SPLASH_MS 2400
 #endif
 #define FX_UI_FRAME_NS 16666667ull
+#include "fextendo_startup_switch.h"
 #ifdef FX_SCREEN_DEBUG
 #include "fextendo_debug_console.h"
 #include "fextendo_debug_file.h"
@@ -38,7 +39,7 @@ static void fx_history_flush(void) {
 }
 static void fx_native_error(const char *message) {
     ErrorApplicationConfig c;
-    if(R_SUCCEEDED(errorApplicationCreate(&c,message,"Fextendo could not start PES13. Check fex-runtime.log, then close and relaunch.")))
+    if(R_SUCCEEDED(errorApplicationCreate(&c,message,"Check the installation and SD card. Relaunch to retry. Debug launch can capture game startup errors.")))
         errorApplicationShow(&c);
 }
 static void fx_fail(const char *message) {
@@ -101,6 +102,11 @@ static void *fx_ui_main(void *arg) {
         fx_ui_view.message="Settings recovery failed. Check SD card space.";
     }
     fx_ui_view.selected=fx_selected(RUNTIME_DIR);
+    fx_ui_view.boot_patch=fx_boot_patch_active;
+    if(!fx_high_allowed(fx_boot_patch_active,fx_ui_view.selected)){
+        fx_ui_view.selected=0; /* Medium for this session; do not rewrite preferences. */
+        if(!fx_ui_view.fatal){fx_ui_view.screen=FX_FAILED;fx_ui_view.message=FX_HIGH_LOCK_MESSAGE;}
+    }
     fx_ui_view.renderer=fx_renderer_selected(RUNTIME_DIR);
     fx_keyboard_options=fx_keyboard_options_load(RUNTIME_DIR);
     fx_ui_view.timestamp=fx_debug_timestamp(RUNTIME_DIR);
@@ -166,6 +172,15 @@ static void *fx_ui_main(void *arg) {
                 fx_ui_view.message="Connect a Player 1 controller before Play.";
             }
             else if(confirm){
+                if(!fx_boot_launch_ready){
+                    fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;
+                    fx_ui_view.message="Incompatible launch mode. Use the 32-bit no-alias HOME tile for Medium/Low, or boot FEXTendo Patch and use the PES13 39-bit tile.";
+                    pthread_mutex_unlock(&fx_ui_lock);continue;
+                }
+                if(!fx_high_allowed(fx_boot_patch_active,fx_ui_view.selected)){
+                    fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;fx_ui_view.message=FX_HIGH_LOCK_MESSAGE;
+                    pthread_mutex_unlock(&fx_ui_lock);continue;
+                }
                 FILE *game=fopen(DEFAULT_TARGET,"rb");
                 if(!game){fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;fx_ui_view.message="PES13 was not found. Check the game folder.";}
                 else{
@@ -188,6 +203,10 @@ static void *fx_ui_main(void *arg) {
             if(dir){fx_ui_view.row=(fx_ui_view.row+dir+rows)%rows;fx_ui_view.saved=0;}
             if(down&HidNpadButton_B)fx_settings_back(&fx_ui_view);
             else if(confirm){
+                if(fx_ui_view.settings_page==FX_SETTINGS_GRAPHICS&&!fx_high_allowed(fx_boot_patch_active,fx_ui_view.row)){
+                    fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;fx_ui_view.message=FX_HIGH_LOCK_MESSAGE;
+                    pthread_mutex_unlock(&fx_ui_lock);continue;
+                }
                 int music=fx_ui_view.music;
                 if(!fx_settings_choose(&fx_ui_view,RUNTIME_DIR)){
                     fx_ui_view.screen=FX_FAILED;fx_ui_view.fatal=0;
@@ -265,6 +284,7 @@ failed_fb:
 }
 static int fx_launcher_start(void) {
     int command,rc;pthread_attr_t attr;
+    if(!fx_startup_switch())return 0;
     if(pthread_attr_init(&attr)){
         fx_native_error("Unable to prepare the launcher thread.");return 0;
     }
@@ -301,7 +321,7 @@ static int fx_launcher_start(void) {
         }
 #endif
         log_line("[STARTUP] verifying renderer files...");
-        int ready=fx_apply_renderer(RUNTIME_DIR,renderer);
+        int ready=fx_boot_launch_ready&&fx_high_allowed(fx_boot_patch_active,selected)&&fx_apply_renderer(RUNTIME_DIR,renderer);
         log_line("[STARTUP] renderer ready=%d; verifying game settings...",ready);
         if(ready)ready=fx_apply_preset(RUNTIME_DIR,selected);
         log_line("[STARTUP] game settings ready=%d",ready);

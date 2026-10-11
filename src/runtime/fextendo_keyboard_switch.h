@@ -101,7 +101,8 @@ static void fx_keyboard_poll_locked(void) {
     if(__atomic_load_n(&fx_keyboard_manual_pending,__ATOMIC_ACQUIRE)&&
        now>=__atomic_load_n(&fx_keyboard_manual_deadline,__ATOMIC_ACQUIRE))
         __atomic_store_n(&fx_keyboard_manual_pending,0,__ATOMIC_RELEASE);
-    for(unsigned i=0;i<2;i++){
+    /* Only the captured Player 1 slot may request text entry. */
+    for(unsigned i=0;i<1;i++){
         uint64_t buttons=fx_samples[i].connected?fx_samples[i].buttons:0;
         uint64_t mask=fx_keyboard_chord_mask(fx_keyboard_options.shortcut,fx_samples[i].kind);
         if(fx_keyboard_chord_poll(&fx_keyboard_chords[i],buttons,mask,now,enabled&&i<fx_players)){

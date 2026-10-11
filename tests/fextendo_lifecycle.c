@@ -32,6 +32,7 @@ typedef struct {int unused;} ErrorApplicationConfig;
 #define HidNpadButton_L 2048
 #define HidNpadButton_R 4096
 #define HidNpadButton_Y 8192
+#define HidNpadButton_Minus 16384
 static const char *test_root,*test_target;static int created,closed,errors;
 #define RUNTIME_DIR test_root
 #define DEFAULT_TARGET test_target
@@ -74,6 +75,18 @@ static u64 padGetButtonsDown(PadState *p){
     return p->index==0?HidNpadButton_A:0;
 }
 static u64 padGetButtons(PadState *p){if(mode==5&&p->index>=2&&p->index<6)return HidNpadButton_A;return padGetButtonsDown(p);}
+static PadState fx_model_pad;
+void fx_pads_init(void){padInitializeDefault(&fx_model_pad);}
+void fx_pads_snapshot(struct fx_pad_sample out[2]){
+    padUpdate(&fx_model_pad);
+    out[0]=fx_pad_normalize(FX_PAD_FULL,1,padGetButtons(&fx_model_pad),0,0,0,0);
+    out[1]=fx_pad_normalize(FX_PAD_FULL,0,0,0,0,0,0);
+}
+unsigned fx_pads_players(void){return 1;}
+int fx_pads_ready(void){return 1;}
+int fx_pads_capture_session(void){return 1;}
+int fx_pads_connect(void){return 1;}
+int fx_pads_begin_game(void){return 1;}
 static int errorApplicationCreate(ErrorApplicationConfig *c,const char *a,const char *b){(void)c;(void)a;(void)b;return 0;}
 static void errorApplicationShow(ErrorApplicationConfig *c){(void)c;errors++;}
 static void log_line(const char *f,...){(void)f;}
@@ -96,6 +109,12 @@ static int test_apply_renderer(const char *root,int selected){
     return fx_apply_renderer(root,selected);
 }
 #define fx_apply_renderer test_apply_renderer
+/* Startup filesystem/console/kernel checks have their own real-code tests.
+ * This fixture begins after they succeed and models the game handoff. */
+#define FEXTENDO_STARTUP_SWITCH_H
+#include "../src/runtime/fextendo_startup_check.h"
+static int fx_boot_patch_active=1,fx_boot_launch_ready=1;
+static int fx_startup_switch(void){return 1;}
 #include "../src/runtime/fextendo_launcher.h"
 #undef fx_apply_renderer
 static void trace_view(int frame){

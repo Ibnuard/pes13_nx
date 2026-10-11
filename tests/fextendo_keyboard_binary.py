@@ -137,9 +137,9 @@ def main():
     assert m.call('fx_keyboard_validate',m.data,1025)==1
     m.vm.mem_write(m.data,'é😀'.encode()+b'\0')
     assert m.call('fx_keyboard_validate',m.data,1025)==0
-    # Run physical libnx -> normalization -> timed shortcut on each player.
+    # Run physical libnx -> normalization -> timed shortcut on Player 1.
     # A request cannot suppress gameplay until Wine actually opens a keyboard.
-    for player in (0,1):
+    for player in (0,):
         for style,connected,shoulders,stick in (
             (1,1,(1<<6)|(1<<7),1<<4),
             (4,21,(1<<6)|(1<<7),1<<4),
@@ -168,6 +168,10 @@ def main():
             pad.state(player);pad.counter_ms+=600;pad.state(player)
             pad.counter_ms+=1001;assert not pad.call('fx_keyboard_manual')
             assert pad.state(player)[3]!=0
+    pad=Model(a.elf);pad.pads[0]=(1,1,0,0,0,0,0)
+    pad.pads[1]=(1,1,(1<<6)|(1<<7)|(1<<4),0,0,0,0)
+    pad.state(1);pad.counter_ms+=2000;pad.state(1)
+    assert not pad.call('fx_keyboard_manual') and not pad.get('fx_osk_blocking')
     report={'passed':True,'hardware_tested':False,
             'native_elf_sha256':hashlib.sha256(a.elf.read_bytes()).hexdigest(),
             'checks':['ARM64 request queue and single applet serialization',
@@ -175,7 +179,7 @@ def main():
                       'P2 button drain, Cancel, repeated reconnect cancellation and stale tokens',
                       'Keyboard delivery suppresses P1/P2 without disconnecting XInput; packets change',
                       'Native applet gates XInput; background HID absence does not trigger reconnect',
-                      '600ms shortcut on P1/P2 full, paired and horizontal L/R Joy-Con; no repeat',
+                      '600ms shortcut on P1 full, paired and horizontal L/R Joy-Con; P2 rejected; no repeat',
                       'Pending/stale shortcut never latches XInput; analog motion does not prevent rearming',
                       'Native validation rejects malformed Unicode without storage writes']}
     a.output.write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report,indent=2))

@@ -210,6 +210,14 @@ static BOOL fx_wine_text_pump(void) {
     }
     if(!kind){fx_wine_text.seen_candidate=0;fx_wine_text.seen_kind=0;}
     if(!fx_wine_text_focus(focus))goto done;
+#ifdef FX_KEYBOARD_OVERLAY
+    /* Adopt the monitor's shortcut session without waiting for a second chord.
+     * Window APIs and input delivery remain on this Wine window thread. */
+    fx_wine_text.overlay=fx_osk_claim();
+    if(fx_wine_text.overlay){
+        fx_wine_text.target=focus;fx_wine_text.kind=kind?kind:4;goto done;
+    }
+#endif
     int manual=fx_keyboard_manual();
     if(!manual&&(!kind||(fx_wine_text.seen_candidate==focus&&fx_wine_text.seen_kind==kind)))goto done;
     if(!kind)kind=4; /* Explicit shortcut on the current game's custom UI. */
@@ -217,6 +225,7 @@ static BOOL fx_wine_text_pump(void) {
     if(kind!=1){
         fx_wine_text.overlay=fx_osk_open(manual?fx_keyboard_manual_owner():0);
         if(fx_wine_text.overlay){
+            fx_osk_claim();
             fx_wine_text.target=focus;fx_wine_text.kind=kind;
             fx_wine_text.seen_candidate=focus;fx_wine_text.seen_kind=kind;
         }

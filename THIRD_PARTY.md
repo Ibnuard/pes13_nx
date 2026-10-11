@@ -46,6 +46,8 @@ and [src/fex/LICENSE](src/fex/LICENSE). Dependency revisions are recorded in
 | HarfBuzz | HarfBuzz authors | MIT; [source](https://github.com/harfbuzz/harfbuzz) |
 | libdrm_nouveau | Mesa/libdrm authors and Switch port contributors | MIT, per source; devkitPro portlib |
 | libpng / zlib / bzip2 | Their respective authors | libpng / zlib / BSD-style, respectively |
+| curl / libcurl | Daniel Stenberg and contributors | curl license; [source](https://github.com/curl/curl), notice in `licenses/curl-COPYING.txt`. Used only for runtime repair downloads at startup. |
+| MiniZip | Gilles Vollant and contributors | zlib license; notice in `licenses/minizip-NOTICE.txt`. Extracts checksum-pinned, allowlisted runtime members. |
 | Expat / Zstandard | Their respective authors | MIT / BSD-or-GPL dual license, respectively |
 | devkitA64 / llvm-mingw / Rust | devkitPro, GCC, LLVM, mingw-w64 and Rust contributors | Toolchain components retain their respective licenses |
 

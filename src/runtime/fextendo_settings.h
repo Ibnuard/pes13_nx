@@ -34,7 +34,7 @@ static const char *fx_settings_title(int page) {
 static const char *fx_settings_subtitle(int page) {
     static const char *const text[]={"Choose a group to configure.","Choose the graphics preset for your next game.",
         "Choose the renderer for your next game.","Choose how to open and position the keyboard.",
-        "Hold the chosen shortcut for 0.6 seconds.","You can also press Y while typing to move it.","Sounds and background music in the launcher."};
+        "Player 1 only. Hold the shortcut for 0.6 seconds.","You can also press Y while typing to move it.","Sounds and background music in the launcher."};
     return text[page];
 }
 static const char *fx_settings_label(const struct fx_view *v,int row) {
@@ -57,7 +57,7 @@ static const char *fx_settings_detail(const struct fx_view *v,int row) {
         return row==0?fx_preset_names[v->selected]:row==1?fx_renderer_names[v->renderer]:
             row==2?"Shortcut and screen position":row==3?"Menu sounds and background music":
             row==4?"On-screen stopwatch while you play":"Add a tile for troubleshooting startup";
-    case FX_SETTINGS_GRAPHICS:return fx_preset_details[row];
+    case FX_SETTINGS_GRAPHICS:return row==3&&!v->boot_patch?"LOCKED  /  Boot FEXTendo Patch with the 39-bit tile":fx_preset_details[row];
     case FX_SETTINGS_RENDERER:return row?"Async shader compilation  /  Alternative renderer":"Default renderer";
     case FX_SETTINGS_KEYBOARD:return row?(fx_keyboard_options.top?"Top":"Bottom"):fx_keyboard_shortcut_names[fx_keyboard_options.shortcut];
     case FX_SETTINGS_SHORTCUT:return row==4?"Open automatically in detected text fields only":"Single Joy-Con: hold SL + SR + Stick";
@@ -95,7 +95,7 @@ static int fx_settings_choose(struct fx_view *v,const char *root) {
     if(page==FX_SETTINGS_KEYBOARD){
         fx_settings_enter(v,row?FX_SETTINGS_POSITION:FX_SETTINGS_SHORTCUT,row?fx_keyboard_options.top:fx_keyboard_options.shortcut);return 1;
     }
-    if(page==FX_SETTINGS_GRAPHICS){if(!fx_apply_preset(root,row))return 0;v->selected=row;}
+    if(page==FX_SETTINGS_GRAPHICS){if(row==3&&!v->boot_patch)return 0;if(!fx_apply_preset(root,row))return 0;v->selected=row;}
     else if(page==FX_SETTINGS_RENDERER){if(!fx_renderer_save(root,row))return 0;v->renderer=row;}
     else if(page==FX_SETTINGS_SHORTCUT||page==FX_SETTINGS_POSITION){
         struct fx_keyboard_options next=fx_keyboard_options;

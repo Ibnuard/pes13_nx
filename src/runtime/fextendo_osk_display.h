@@ -3,10 +3,10 @@
 static struct fx_pause_display fx_osk_display;
 static unsigned fx_osk_drawn_generation;
 static int fx_osk_display_mode=-1;
-static void fx_osk_display_close(void) {
+static __attribute__((noinline,noclone)) void fx_osk_display_close(void) {
     fx_pause_close(&fx_osk_display);fx_osk_drawn_generation=0;fx_osk_display_mode=-1;
 }
-static int fx_osk_display_show(const struct fx_osk_core *state,unsigned player,int single) {
+static __attribute__((noinline,noclone)) int fx_osk_display_show(const struct fx_osk_core *state,unsigned player,int single) {
     struct fx_pause_display *p=&fx_osk_display;
     int mode=appletGetOperationMode();s32 w=1280,h=720,z=0;
     if(p->have_fb&&fx_osk_drawn_generation==state->generation&&fx_osk_display_mode==mode)return 1;
