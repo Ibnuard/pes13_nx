@@ -13,8 +13,8 @@ import subprocess
 from fextendo_low_window import ROOT
 from pes_low_window_patches import apply, exact
 
-VERSION = '0.4.1'
-BUILD_REVISION = 'keyboard-frame'
+VERSION = '0.4.2'
+BUILD_REVISION = 'fastest-default'
 NRO = 'pes13-fex.nro'
 FEATURES = ('fextendo_keyboard_switch.h', 'fextendo_keyboard_wine.h',
             'fextendo_keyboard_options.h','fextendo_presets.h',
@@ -85,6 +85,10 @@ def main():
     runtime = source/'wine-nx-probe/source/runtime.c'
     text = runtime.read_text()
     text = exact(text, '[STARTUP] FEXTendo 0.3.8-r6 /', '[STARTUP] FEXTendo '+VERSION+' '+BUILD_REVISION+' /')
+    # Use Fastest for an absent setting too. Explicit configuration.ini = 0
+    # remains a supported opt-out; graphics quality and OC do not select this.
+    text = exact(text, 'wine_nx_config_file_bool(RUNTIME_DIR "/fex-fastest.txt", 0)',
+                       'wine_nx_config_file_bool(RUNTIME_DIR "/fex-fastest.txt", 1)')
     runtime.write_text(text)
     after, new_feature = inventory(source), inventory(feature)
     write(a.work/'prepared.json', {'baseline_receipt_sha256': sha(a.base/'build-report.json'),

@@ -150,7 +150,13 @@ def publish(folder, tag, commit):
                 'into Vulkan game frames using the Autorun approach. Normal launch disables diagnostic '
                 'file writes; Debug launch records startup/errors. NRO display version '
                 + manifest['runtime_version'] + '. Package validation is not a Switch hardware test. '
-                'The standalone NRO/NSP assets are for existing installations.\n\n' + notes['body'])
+                'The standalone NRO/NSP assets are for existing installations.\n\n'
+                '**Fastest is enabled by default in v0.4.2.** For existing installations, '
+                'copy the package configuration.ini too, or edit its existing `fex_fastest=0` '
+                'entry to `fex_fastest=1` and keep `fex_fast=1`. Do not add duplicate keys. '
+                'Restart the application. An explicit `0` remains an opt-out when updating '
+                'only the NRO. Graphics quality, the memory patch and OC do not select this '
+                'profile. Clocks are unchanged; no hardware FPS guarantee is implied.\n\n' + notes['body'])
         release = gh('api', prefix + '/releases', '--method', 'POST', data={
             'tag_name': tag, 'target_commitish': commit, 'name': title,
             'body': body, 'draft': True, 'prerelease': False})
