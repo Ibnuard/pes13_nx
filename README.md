@@ -27,9 +27,18 @@ game data and installation code are not supplied by this repository.
 3. On the Windows PC where PES is installed, run
    [tools/export-metadata.py](tools/export-metadata.py). Copy the resulting
    `local/config/pes13-install.reg` to `switch/pes13-fex/pes13-install.reg`.
-4. Install and launch the included `FEXTendo-PES13.nsp`, targeting
-   `sdmc:/switch/pes13-fex/pes13-fex.nro` (32-bit address space, no alias, 4 cores,
-   svcDebug disabled). Its icon matches the NRO.
+4. Install and launch the included `PES13-FEXTendo.nsp`, targeting
+   `sdmc:/switch/pes13-fex/pes13-fex.nro`. This single forwarder uses stock
+   32-bit no-alias mode, or the 39-bit low window when FEXTendo Core Patch
+   1.1.0+ is active at boot. Its icon matches the NRO. Without the active
+   memory patch, use Medium or lower; HIGH is disabled.
+
+**v0.4.2 enables Fastest by default.** Update `configuration.ini` along with
+the NRO, or change its existing `fex_fastest=0` entry to `fex_fastest=1` while
+keeping `fex_fast=1`. Restart the application. An explicit `0` remains an
+opt-out, including when only the NRO is updated. This CPU translation profile
+is independent of graphics quality, the memory patch and overclock settings;
+the release does not alter clocks or guarantee FPS.
 
 Expected layout at the SD root (runtime folders shown below come from the
 complete package; keep their other supplied files):

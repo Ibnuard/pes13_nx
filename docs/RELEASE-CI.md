@@ -5,7 +5,34 @@ It uses `pull_request_target: closed`, requires `merged == true`, and checks out
 that event's exact `merge_commit_sha`. Direct pushes, unmerged PRs and manual
 workflow events do not publish. The Kitserver `patch-release` pipeline is separate.
 
-## v0.4.1 distribution input
+## v0.4.2 distribution input
+
+The active `production-lock.json` pins
+`runtime-production-v0.4.2/fextendo-runtime-production-v0.4.2.zip` for the
+public **v0.4.2** release. Fastest is enabled in the packaged INI and the
+native launch fallback. Existing explicit `fex_fastest=0` remains an opt-out;
+NRO-only users must edit that existing key to enable Fastest. Graphics quality,
+32/39-bit mode and overclock do not select the translation profile.
+
+Build using `tools/build-pes13-39bit.py` in a fresh directory, then package
+the matching forwarder using `tools/build-pes13-39bit-forwarder.py`.
+The HOME title and Title ID are unchanged; NACP is 0.4.2 and CNMT is 196608.
+`tests/fextendo_fastest_default.py` executes the generated launch expression
+and actual configuration reader, including missing config and explicit opt-out.
+The existing keyboard, ARM64 memory/input and dependency checks are retained.
+
+`tools/prepare_production_v042_runtime.py` accepts the immutable v0.4.1 input,
+the fresh `--build` tree, matching `--forwarder` package, and nine `--tests`
+receipts. It preserves every r6 runtime DLL and historical source/confirmation,
+adds corresponding v0.4.2 source, and emits `--output` and `--lock-output`.
+This release has build/host/ARM64 validation; the v0.4.1 device confirmation
+is historical and does not establish v0.4.2 hardware FPS or gameplay results.
+CI also rejects a package whose INI does not enable the locked Fastest default.
+
+Public artifacts follow the layout below with version **v0.4.2**. The older
+v0.4.1 sealing procedure is retained below for reproducibility.
+
+## Historical v0.4.1 distribution input
 
 `release/production-lock.json` pins the immutable
 `runtime-production-v0.4.1/fextendo-runtime-production-v0.4.1.zip` dependency.

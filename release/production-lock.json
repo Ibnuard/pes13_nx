@@ -1,7 +1,7 @@
 {
-  "asset": "fextendo-runtime-production-v0.4.1.zip",
+  "asset": "fextendo-runtime-production-v0.4.2.zip",
   "binaries": {
-    "PES13-FEXTendo.nsp": "b100b2aa1a28e49316e67e16e74687fe6be74e6553e196d41252730bed2ecbe2",
+    "PES13-FEXTendo.nsp": "d693eb77787df160266a178b91fd12a4ef23504fc2b3ad28c05a057f93ade454",
     "switch/pes13-fex/drive_c/PES13/d3d9.dll": "265888c31ca78dffa290c39cb7e50bfb02762590e41927906e46fb32f01497fa",
     "switch/pes13-fex/drive_c/dxvk/d3d9.dll": "265888c31ca78dffa290c39cb7e50bfb02762590e41927906e46fb32f01497fa",
     "switch/pes13-fex/drive_c/windows/system32/apisetschema.dll": "bf7a4c252b22425624e3ae91ce57968dfd810ead4292bec2c061eaef55d99972",
@@ -109,24 +109,17 @@
     "switch/pes13-fex/drive_c/windows/syswow64/xinput1_4.dll": "c568aa6763ffcac6553b7248c77379a94c9cace993a91f7e6d90085ce19863fa",
     "switch/pes13-fex/launcher/renderers/dxvk-2.7.1-async/d3d9.dll": "a2cd6841e102f37189527c118ec416fa5071ac4d3120762973d9a0c6c5fd067e",
     "switch/pes13-fex/launcher/renderers/dxvk-3.1.1/d3d9.dll": "265888c31ca78dffa290c39cb7e50bfb02762590e41927906e46fb32f01497fa",
-    "switch/pes13-fex/pes13-fex.nro": "8f8d1d32a97bd1c3d7788a1333628c6052b73747985877f8f090fc201b835b07"
+    "switch/pes13-fex/pes13-fex.nro": "604cc5ec0c5aa8558cbe41c0f037f38cfbccab1499d466301914f6f6b54a31bc"
   },
-  "device_confirmation": {
-    "build_revision": "keyboard-frame",
-    "confirmation": "udah aman nih jadi tolong commit push dan jalanin pipelinenya",
-    "date": "2026-10-12",
-    "keyboard_confirmed_working": true,
-    "nro_sha256": "8f8d1d32a97bd1c3d7788a1333628c6052b73747985877f8f090fc201b835b07",
-    "scope": "User confirmed the latest keyboard fix on Switch. This does not certify every preset, renderer, game patch or kernel version.",
-    "version": "0.4.1"
-  },
+  "default_fex_profile": "fastest",
   "forwarder_filename": "PES13-FEXTendo.nsp",
   "forwarder_kind": "fxtauto-v1",
+  "hardware_tested": false,
   "nro_title": "PES13-FEXTendo",
-  "release_tag": "v0.4.1",
-  "runtime_version": "0.4.1",
+  "release_tag": "v0.4.2",
+  "runtime_version": "0.4.2",
   "schema": 1,
-  "sha256": "585219b77cd80c5f0cb4a235a6dbdd4a6897b9165e4b358cdf4b2bb6fb0e969d",
+  "sha256": "5c5b592b4287beb32397d69a7ea9d8e8b44cec519e4474b86e777b071e7538b6",
   "source_fingerprints": {
     "assets/fextendo-v3/nro-icon.jpg": "2a721372a464676cac1cdbd7994e4c0c6fb3636f8a3032c4bb17cf6b19eb5c5f",
     "assets/startup/font.dat": "d11b74e220b5b2ffdb90fa15155022879732f736426d36e50e21c33dfef1cae2",
@@ -276,7 +269,7 @@
     "src/runtime/fextendo_timestamp_pixels.h": "74787e4ffa7d75453733c92d212ff8729c71066658b0b0436bf7a90af7ab3c7d",
     "src/runtime/fextendo_transition_alloc.h": "f5469ce5274775c58ded9b0eaa9d9b82eae4c76b025493d12c929d3c5f78aa59",
     "src/runtime/fextendo_transition_trace.h": "c6a27f83b88646e6b00ff19ae17a8feda2736e2cf30fc2f280833dbf1adc7ff7",
-    "src/runtime/fextendo_ui.h": "e33bbf25f2062844f44a96c6c3bb52a16f0a97f2c7d74f49160dffa5215e7110",
+    "src/runtime/fextendo_ui.h": "6a4fc3ab7dfd74824a8e354bb027550220b7d820afc87f9c08aaad3ec5ae7d4b",
     "src/runtime/fextendo_virtmem.c": "29440de5ed2730ba0a1a88718df35261ff89c84ebf320c09b59134d186b7e5e6",
     "src/runtime/horizon_commit.h": "70dca01bd286cf3dacdfdc8fadf70c4f7ac4b2f03f6ef15cd217a943acd2ac54",
     "src/runtime/horizon_memory_failure.h": "6c9bf07ad8a9c323c2de254b67137623bb5212b9486319085e8da2838fce8867",
@@ -400,8 +393,8 @@
     "tools/build-perf6-test.py": "8bdb509b63222f9f902a2342fe72fed6d0ee78bb393255b9a719b0d37d052183",
     "tools/build-perf7-test.py": "951181cdd6449fd9f57575b4b0a0a46d58123bd95a7a12fa2c47b390eb355563",
     "tools/build-perf8-test.py": "26d96b90f49610acd81f7bef0ed01006ae5f751295f6f705034c3f4f072f0eb3",
-    "tools/build-pes13-39bit-forwarder.py": "943b0a4b10c230bd40e3438ab2e6b77e3e74524b7ef5d593e8ca3188e4dd201b",
-    "tools/build-pes13-39bit.py": "6a9beb7b18f303541eca7efa7f6c9c629862e65d11e9fe55cb259e0230eb04ce",
+    "tools/build-pes13-39bit-forwarder.py": "494d2d7f142a85159407c270b37dec0284e6e70c46ef45b3369951500828ddd1",
+    "tools/build-pes13-39bit.py": "45596d5666e497385901b6231f52e8397f03bde0881ebd5e08faa27ba28bdf1c",
     "tools/build-runtime-wsl.sh": "2a79dac1641c0c76ce7e10cd6b7b44877276c2d14508dc3cdd6cb91a7acde61a",
     "tools/build-settings-debug.py": "99687c9299ea8f5509ae6d95f4216ff9b85d6bffdc60ef5bc6481fee94fe37b4",
     "tools/fex2_prepare.py": "4b6c4e46b8de48ed49654d98c68232f36ed9cc964c6c136718e532d535ffd8f9",
@@ -479,5 +472,5 @@
     "tools/perf44_patches.py": "fb05ae7607140e70b17917b3cac258ab24ade765a8be3c0a041e0cc417c68f48",
     "tools/pes_low_window_patches.py": "2e91dafb9aa23ae37ddd9de51ed5fc53f5d8000a47fba0cb536b7e55b01ee7e5"
   },
-  "tag": "runtime-production-v0.4.1"
+  "tag": "runtime-production-v0.4.2"
 }

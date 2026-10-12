@@ -1,4 +1,4 @@
-PES13-FEXTendo v0.4.1 - complete SD package
+PES13-FEXTendo v0.4.2 - complete SD package
 
 1. Extract switch/ to the root of the Switch SD card, preserving folders.
 2. Copy your own installed PES 2013 PC v1.0 into:
@@ -30,7 +30,15 @@ Normal launch disables diagnostic file writes. Enable Show debug launch and
 use its tile to collect startup/error logs when reporting a problem. Functional
 saves, launcher settings and necessary runtime data may still be written.
 
-New installations need FEXTendo-v0.4.1-sd.zip. Standalone NRO and NSP downloads
+Fastest is now the default FEX profile, independent of graphics quality,
+memory patch and overclock. The package sets fex_fast=1 and fex_fastest=1.
+For an existing installation, update configuration.ini as well as the NRO,
+or edit the existing fex_fastest entry to 1 (do not add a duplicate key).
+An explicit fex_fastest=0 still selects Fast when fex_fast=1. Restart the
+application after changing this setting. This release does not change clocks
+or guarantee a particular FPS on every Switch.
+
+New installations need FEXTendo-v0.4.2-sd.zip. Standalone NRO and NSP downloads
 update an existing complete installation. Close the application before updating
 and back up your own saves/settings. Game files, private registry metadata,
 saves, logs and caches are excluded. Sources, licenses and build/test evidence

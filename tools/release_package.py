@@ -39,6 +39,12 @@ def forwarder_name(lock):
     return name
 
 
+def verify_profile_default(options, lock):
+    if lock.get('default_fex_profile') == 'fastest' and (
+            options.get('fex_fast') != '1' or options.get('fex_fastest') != '1'):
+        raise ValueError('Release configuration must enable the locked Fastest default')
+
+
 def sha(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -160,6 +166,7 @@ def verify_payload(files, lock):
                    if '=' in line and not line.lstrip().startswith('#'))
     if options.get('run_guest_tests') != '0' or options.get('production') != '1':
         raise ValueError('Release must launch the game in production mode')
+    verify_profile_default(options, lock)
     for n in SETTINGS:
         data = files[PREFIX + n]
         crc = 0
@@ -229,6 +236,7 @@ def assemble(runtime, output, version, commit, lock_path=None):
     for n in files:
         directories.update(p.as_posix() + '/' for p in PurePosixPath(n).parents if p.as_posix() != '.')
     manifest = {'package_version': version, 'source_commit': commit, 'runtime_version': lock['runtime_version'],
+                'default_fex_profile': lock.get('default_fex_profile'),
                 'runtime_sha256': lock['sha256'], 'runtime_tag': lock['tag'],
                 'game_included': False, 'settings_included': True, 'checks': checks,
                 'forwarder_filename': nsp, 'device_confirmation': lock.get('device_confirmation'),

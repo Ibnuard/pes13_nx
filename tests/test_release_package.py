@@ -16,6 +16,15 @@ import release_ci as ci
 
 
 class PackageTests(unittest.TestCase):
+    def test_fastest_release_rejects_old_or_missing_configuration(self):
+        lock = {'default_fex_profile': 'fastest'}
+        package.verify_profile_default({'fex_fast': '1', 'fex_fastest': '1'}, lock)
+        for options in ({}, {'fex_fast': '1'}, {'fex_fast': '1', 'fex_fastest': '0'},
+                        {'fex_fast': '0', 'fex_fastest': '1'}):
+            with self.subTest(options=options), self.assertRaisesRegex(ValueError, 'Fastest'):
+                package.verify_profile_default(options, lock)
+        package.verify_profile_default({'fex_fast': '1', 'fex_fastest': '0'}, {})
+
     def test_distribution_lock_is_separate_and_does_not_fall_back_when_invalid(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

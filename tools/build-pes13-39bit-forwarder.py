@@ -18,7 +18,7 @@ TAG = 'pes13-original-39bit-v1'
 TITLE_ID = 0x052d1913f51f5000
 # The old packages all used CNMT 0, even when the NACP name/version changed.
 # Preserve the title identity but give installers a newer metadata revision.
-TITLE_VERSION = 0x20000
+TITLE_VERSION = 0x30000
 NSO_SHA = 'f38ef096a589d3c39848d64101ab37c3488da8ea02c64f3397b06109cb0643e9'
 ELF_SHA = '7f4eeaa4525fbb906aea5685a1bfd74b69003b57071ef373db3bfdfec4a758ff'
 SOURCE_HASHES = {
